@@ -28,9 +28,15 @@ for path in glob.glob(os.path.join(PKG, "**", "*"), recursive=True):
         continue
     datas.append((path, os.path.dirname(os.path.relpath(path, ROOT))))
 
-# ---- Vosk: libvosk (.so/.dll/.dyld) e le sue dipendenze stanno nella cartella del pacchetto
-datas += collect_data_files("vosk")
-binaries = collect_dynamic_libs("vosk")
+# ---- Vosk: libvosk (.so/.dll/.dyld) e le sue dipendenze stanno nella cartella del pacchetto.
+# Su macOS la libreria si chiama «libvosk.dyld» (estensione insolita): PyInstaller non la riconosce da solo
+# come libreria, quindi la si indica a mano tra i binari (così viene anche firmata insieme all'app).
+import vosk as _vosk  # noqa: E402
+_VDIR = os.path.dirname(_vosk.__file__)
+_LIBS = (".dyld", ".dylib", ".so", ".dll")
+binaries = [(p, "vosk") for p in glob.glob(os.path.join(_VDIR, "*")) if p.endswith(_LIBS)]
+datas += [(src, dst) for src, dst in collect_data_files("vosk") if not src.endswith(_LIBS)]
+binaries += [b for b in collect_dynamic_libs("vosk") if b[0] not in {x[0] for x in binaries}]
 
 # ---- modello vocale incluso (facoltativo)
 model = os.environ.get("SCRIPTFOLLOWER_MODEL_DIR")

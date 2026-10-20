@@ -2,5 +2,5 @@ PySide6>=6.6,<6.12   # come CueStage: 6.12.0 crasha su Python < 3.12
 numpy>=1.24
 sounddevice>=0.4.6
 python-osc>=1.8
-vosk>=0.3.45         # riconoscimento vocale offline (Kaldi)
+vosk>=0.3.44         # riconoscimento vocale offline (Kaldi) — la 0.3.45 non ha il pacchetto per macOS
 pymupdf>=1.24,<2     # lettura e disegno del PDF (la 2.0 si porta dietro onnxruntime: +70 MB)
