@@ -1,0 +1,28 @@
+{
+  "id": "qlab",
+  "name": "QLab (Figure 53)",
+  "port": 53000,
+  "notes": "QLab 4 e 5 ricevono OSC sulla porta UDP 53000. In QLab 5: Workspace Settings › Network › OSC Access: aggiungi un accesso «senza passcode» con i permessi «View» e «Control» (oppure abilita i comandi senza passcode). Il numero di cue è il campo «Number» di QLab (es. 12, 3.5, «A1»).",
+  "commands": [
+    {"id": "go", "label": "GO", "address": "/go", "args": []},
+    {"id": "cue_start", "label": "Avvia una cue", "address": "/cue/{cue}/start", "args": [],
+     "params": [{"id": "cue", "label": "Cue", "type": "text", "default": "1"}]},
+    {"id": "cue_stop", "label": "Ferma una cue", "address": "/cue/{cue}/stop", "args": [],
+     "params": [{"id": "cue", "label": "Cue", "type": "text", "default": "1"}]},
+    {"id": "cue_pause", "label": "Pausa di una cue", "address": "/cue/{cue}/pause", "args": [],
+     "params": [{"id": "cue", "label": "Cue", "type": "text", "default": "1"}]},
+    {"id": "cue_resume", "label": "Riprendi una cue", "address": "/cue/{cue}/resume", "args": [],
+     "params": [{"id": "cue", "label": "Cue", "type": "text", "default": "1"}]},
+    {"id": "cue_load", "label": "Carica (load) una cue", "address": "/cue/{cue}/load", "args": [],
+     "params": [{"id": "cue", "label": "Cue", "type": "text", "default": "1"}]},
+    {"id": "playhead", "label": "Playhead su una cue", "address": "/playhead/{cue}", "args": [],
+     "params": [{"id": "cue", "label": "Cue", "type": "text", "default": "1"}]},
+    {"id": "playhead_next", "label": "Playhead alla successiva", "address": "/playhead/next", "args": []},
+    {"id": "playhead_previous", "label": "Playhead alla precedente", "address": "/playhead/previous", "args": []},
+    {"id": "stop", "label": "STOP di tutto", "address": "/stop", "args": []},
+    {"id": "panic", "label": "PANIC", "address": "/panic", "args": []},
+    {"id": "pause", "label": "Pausa generale", "address": "/pause", "args": []},
+    {"id": "resume", "label": "Ripresa generale", "address": "/resume", "args": []},
+    {"id": "reset", "label": "Reset del workspace", "address": "/reset", "args": []}
+  ]
+}

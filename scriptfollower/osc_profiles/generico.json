@@ -1,0 +1,12 @@
+{
+  "id": "generico",
+  "name": "Generico (solo indirizzi personalizzati)",
+  "port": 8000,
+  "notes": "Nessun comando già pronto: in ogni pulsante scrivi indirizzo OSC e argomenti a mano.",
+  "commands": [
+    {"id": "custom", "label": "Indirizzo e argomenti", "address": "{address}", "args": ["{args}"],
+     "params": [{"id": "address", "label": "Indirizzo", "type": "text", "default": "/"},
+                {"id": "args", "label": "Argomenti", "type": "text", "default": ""}],
+     "help": "Argomenti separati da spazi: 1 = intero, 1.5 = decimale, \"testo\" = stringa, true/false."}
+  ]
+}

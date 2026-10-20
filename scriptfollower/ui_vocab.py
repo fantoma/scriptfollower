@@ -1,0 +1,205 @@
+"""Finestra «Vocabolario del copione»: parole che il modello non conosce e loro pronuncia con parole note."""
+import threading
+
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel,
+                               QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
+
+from .align import normalize
+from .recognizer import find_model
+from .vocab import default_alias, suggest
+
+C_WORD, C_COUNT, C_SAY, C_STATE = range(4)
+
+
+class _Relay(QObject):
+    done = Signal(object, str)
+
+
+class VocabDialog(QDialog):
+    def __init__(self, mw):
+        super().__init__(mw)
+        self.mw = mw
+        self.doc = mw.doc
+        self.setWindowTitle("Vocabolario del copione")
+        self.known = None                          # funzione parola -> bool (dopo il controllo col modello)
+        self.counts = self.doc.word_counts()
+        v = QVBoxLayout(self)
+        intro = QLabel(
+            "Il modello vocale riconosce solo le parole del suo vocabolario: una parola del copione che non conosce "
+            "(nomi propri, neologismi, numeri in cifre…) non verrà mai «sentita». Aggiungere parole nuove al modello "
+            "italiano non si può fare da qui: richiede di ricompilarne il grafo, con strumenti che Alphacephei "
+            "fornisce solo su richiesta. Si può però dare a ogni parola una <b>pronuncia</b> fatta di parole che il "
+            "modello conosce (es. «Gesualdi» → «gesù aldi»): verrà riconosciuta e agganciata alla parola del "
+            "copione. Le parole sconosciute senza pronuncia vengono saltate dall'inseguimento senza penalità. "
+            "I numeri in cifre si leggono già in lettere (118 → centodiciotto).")
+        intro.setWordWrap(True)
+        v.addWidget(intro)
+        row = QHBoxLayout()
+        self.check_btn = QPushButton("Controlla le parole con il modello")
+        self.check_btn.clicked.connect(self.check)
+        row.addWidget(self.check_btn)
+        self.auto_btn = QPushButton("Proposte automatiche")
+        self.auto_btn.setToolTip("Per le parole sconosciute senza pronuncia: accento finale, parola divisa in parti "
+                                 "note («aspirapolvere» → «aspira polvere»), numeri")
+        self.auto_btn.clicked.connect(self.auto)
+        self.auto_btn.setEnabled(False)
+        row.addWidget(self.auto_btn)
+        row.addStretch(1)
+        self.add_word = QLineEdit()
+        self.add_word.setPlaceholderText("aggiungi una parola a mano…")
+        self.add_word.returnPressed.connect(self._add_manual)
+        row.addWidget(self.add_word)
+        v.addLayout(row)
+        self.msg = QLabel()
+        self.msg.setWordWrap(True)
+        v.addWidget(self.msg)
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Parola del copione", "Volte", "Pronuncia (parole note al modello)",
+                                              "Stato"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(C_WORD, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(C_COUNT, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(C_SAY, QHeaderView.Stretch)
+        hh.setSectionResizeMode(C_STATE, QHeaderView.ResizeToContents)
+        self.table.itemChanged.connect(self._edited)
+        v.addWidget(self.table, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        v.addWidget(bb)
+        self.relay = _Relay()
+        self.relay.done.connect(self._checked)
+        self._filling = False
+        self._fill({w: a for w, a in self.doc.aliases.items()})
+        if self.mw.rec.model is not None:          # modello già caricato: controllo subito
+            self._checked(self.mw.rec.known_fn(self.mw.rec.model), "")
+        else:
+            self.msg.setText("Premi «Controlla le parole con il modello» per sapere quali parole non conosce "
+                             "(serve qualche secondo per caricare il modello).")
+            self.msg.setStyleSheet("color:#999;")
+        self.resize(760, 620)
+
+    # ------------------------------------------------------------ tabella
+    def _fill(self, aliases, unknown=()):
+        self._filling = True
+        words = sorted(set(aliases) | set(unknown), key=lambda w: (-self.counts.get(w, 0), w))
+        self.table.setRowCount(len(words))
+        for r, w in enumerate(words):
+            it = QTableWidgetItem(w)
+            it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+            self.table.setItem(r, C_WORD, it)
+            c = QTableWidgetItem(str(self.counts.get(w, 0)))
+            c.setFlags(c.flags() & ~Qt.ItemIsEditable)
+            c.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.table.setItem(r, C_COUNT, c)
+            self.table.setItem(r, C_SAY, QTableWidgetItem(aliases.get(w, "")))
+            s = QTableWidgetItem()
+            s.setFlags(s.flags() & ~Qt.ItemIsEditable)
+            self.table.setItem(r, C_STATE, s)
+            self._state(r)
+        self._filling = False
+
+    def _rows(self):
+        for r in range(self.table.rowCount()):
+            yield r, self.table.item(r, C_WORD).text(), self.table.item(r, C_SAY).text().strip()
+
+    def _state(self, r):
+        w = self.table.item(r, C_WORD).text()
+        say = self.table.item(r, C_SAY).text().strip()
+        it = self.table.item(r, C_STATE)
+        toks = normalize(say) if say else normalize(default_alias(w) or w)
+        if self.known is None:
+            it.setText("—")
+            it.setForeground(QColor(150, 150, 158))
+            return
+        missing = [t for t in toks if not self.known(t)]
+        if not missing:
+            it.setText("✔ riconoscibile")
+            it.setForeground(QColor(108, 192, 112))
+        elif say:
+            it.setText("⚠ non note: " + ", ".join(missing))
+            it.setForeground(QColor(224, 160, 48))
+        else:
+            it.setText("✘ sconosciuta (saltata)")
+            it.setForeground(QColor(220, 90, 80))
+
+    def _edited(self, item):
+        if not self._filling and item.column() == C_SAY:
+            self._state(item.row())
+
+    # ------------------------------------------------------------ controllo col modello
+    def check(self):
+        path = find_model(self.mw.rec_cfg["model"])
+        if not path:
+            self.msg.setText("Nessun modello vocale: scaricalo da Impostazioni › Riconoscimento.")
+            self.msg.setStyleSheet("color:#e66;")
+            return
+        if not self.mw.rec.available():
+            self.msg.setText("Vosk non è installato.")
+            self.msg.setStyleSheet("color:#e66;")
+            return
+        self.check_btn.setEnabled(False)
+        self.msg.setText("Carico il modello e controllo le parole…")
+        self.msg.setStyleSheet("color:#999;")
+
+        def run():
+            try:
+                model = self.mw.rec.load_model(path)
+                self.relay.done.emit(self.mw.rec.known_fn(model), "")
+            except Exception as e:  # noqa: BLE001
+                self.relay.done.emit(None, str(e))
+        threading.Thread(target=run, daemon=True).start()
+
+    def _checked(self, known, err):
+        self.check_btn.setEnabled(True)
+        if known is None:
+            self.msg.setText(f"Controllo non riuscito: {err}")
+            self.msg.setStyleSheet("color:#e66;")
+            return
+        self.known = known
+        aliases = {w: s for _r, w, s in self._rows()}
+        unknown = [w for w in self.counts if not all(known(t) for t in normalize(default_alias(w) or w))]
+        self._fill(aliases, unknown)
+        n_occ = sum(self.counts[w] for w in unknown)
+        tot = sum(self.counts.values())
+        self.msg.setText(f"{len(unknown)} parole su {len(self.counts)} non sono nel vocabolario del modello "
+                         f"({n_occ} occorrenze su {tot}, {100.0 * n_occ / max(1, tot):.1f}% del parlato). "
+                         "Le più frequenti sono in cima.")
+        self.msg.setStyleSheet("color:#6c6;" if not unknown else "color:#e0b040;")
+        self.auto_btn.setEnabled(True)
+
+    def auto(self):
+        if self.known is None:
+            return
+        n = 0
+        for r, w, say in list(self._rows()):
+            if not say:
+                s = suggest(w, self.known)
+                if s:
+                    self.table.item(r, C_SAY).setText(s)
+                    n += 1
+        self.msg.setText(("1 proposta inserita" if n == 1 else f"{n} proposte inserite")
+                         + ": controllale (puoi modificarle o cancellarle) e premi OK." if n else
+                         "Nessuna proposta automatica: scrivi tu la pronuncia con parole che il modello conosce.")
+        self.msg.setStyleSheet("color:#6c6;")
+
+    def _add_manual(self):
+        ws = normalize(self.add_word.text())
+        self.add_word.clear()
+        if len(ws) != 1:
+            return
+        aliases = {w: s for _r, w, s in self._rows()}
+        if ws[0] not in aliases:
+            aliases[ws[0]] = ""
+            self._fill(aliases, [])
+        for r, w, _s in self._rows():
+            if w == ws[0]:
+                self.table.setCurrentCell(r, C_SAY)
+                self.table.editItem(self.table.item(r, C_SAY))
+
+    def aliases(self):
+        return {w: s for _r, w, s in self._rows() if s}

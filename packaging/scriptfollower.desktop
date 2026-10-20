@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Script Follower
+GenericName=Segui copione
+Comment=Segue il parlato e fa scorrere il copione teatrale, con pulsanti OSC
+Exec=scriptfollower %f
+Icon=scriptfollower
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=copione;teatro;script;prompter;osc;qlab;cuestage;

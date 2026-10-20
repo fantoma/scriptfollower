@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+/build/
+/dist/
+/models/
+.venv/
+*.AppImage
+*.dmg
+*.zip
+*.sha256
+*.sfollow.tmp

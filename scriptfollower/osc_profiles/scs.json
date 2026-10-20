@@ -1,0 +1,25 @@
+{
+  "id": "scs",
+  "name": "SCS – Show Cue Systems",
+  "port": 58000,
+  "notes": "Richiede SCS Professional Plus o superiore. In SCS: Production Properties › Cue Control Devices › Network: «Network Server», protocollo UDP, formato messaggi «OSC», porta di ascolto (qui 58000 come esempio: usa la stessa). Le cue si indicano con l'etichetta di SCS (es. Q10). Usa «Test Network Control» in SCS per verificare che i messaggi arrivino.",
+  "commands": [
+    {"id": "go", "label": "GO", "address": "/ctrl/go", "args": []},
+    {"id": "gotop", "label": "Torna alla prima cue (Go To Top)", "address": "/ctrl/gotop", "args": []},
+    {"id": "goto", "label": "Vai alla cue (Go To Cue)", "address": "/ctrl/goto", "args": ["\"{cue}\""],
+     "params": [{"id": "cue", "label": "Cue", "type": "text", "default": "Q1"}]},
+    {"id": "cue_go", "label": "Avvia una cue (Play Cue)", "address": "/cue/go", "args": ["\"{cue}\""],
+     "params": [{"id": "cue", "label": "Cue", "type": "text", "default": "Q1"}]},
+    {"id": "cue_stop", "label": "Ferma una cue", "address": "/cue/stop", "args": ["\"{cue}\""],
+     "params": [{"id": "cue", "label": "Cue", "type": "text", "default": "Q1"}]},
+    {"id": "cue_pauseresume", "label": "Pausa / ripresa di una cue", "address": "/cue/pauseresume", "args": ["\"{cue}\""],
+     "params": [{"id": "cue", "label": "Cue", "type": "text", "default": "Q1"}]},
+    {"id": "hkey_go", "label": "Hotkey", "address": "/hkey/go", "args": ["\"{key}\""],
+     "params": [{"id": "key", "label": "Tasto", "type": "text", "default": "A"}]},
+    {"id": "hkey_off", "label": "Stop di un hotkey «note»", "address": "/hkey/off", "args": ["\"{key}\""],
+     "params": [{"id": "key", "label": "Tasto", "type": "text", "default": "A"}]},
+    {"id": "master", "label": "Fader master (dB)", "address": "/fader/setmaster", "args": ["{db}.0"],
+     "params": [{"id": "db", "label": "dB", "type": "int", "min": -75, "max": 12, "default": 0}],
+     "help": "SCS vuole un numero decimale (float): il valore viene inviato come float."}
+  ]
+}
