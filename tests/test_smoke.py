@@ -119,7 +119,12 @@ def copione_parole_escluse():
     # frasi prima di una parola
     k = next(w.i for w in d.words if w.text == "eccolo!")
     ctx = " ".join(d.words[j].text for j in d.sentences_before(k))
-    assert ctx.startswith("Dove ho messo"), ctx
+    # due frasi, ma almeno 18 parole: si aggiungono frasi intere precedenti
+    assert ctx.startswith("Chi ha tolto la corrente?"), ctx
+    assert " ".join(d.words[j].text for j in d.sentences_before(k, min_words=0)).startswith("Dove ho messo")
+    # i puntini di sospensione non chiudono la frase
+    from scriptfollower.script_doc import ends_sentence
+    assert ends_sentence("me?") and ends_sentence("ciao.»") and not ends_sentence("…") and not ends_sentence("no...")
     assert d.word_at(0, d.words[k].x0 + 1, d.words[k].y0 + 2) == k
     # anteprima del riquadro: frasi, righe, parole
     assert d.context_before(k, "sentences", 2) == d.sentences_before(k, n=2, max_words=120)
@@ -317,6 +322,120 @@ def vocabolario_e_pronunce():
     w._model_unknown({"mamma"})
     assert any(w.aligner.gcum[i + 1] == w.aligner.gcum[i] for i in range(len(w.doc.tokens))
                if w.doc.tokens[i] == "mamma")              # «mamma» si salta senza penalità
+    w.project.dirty = False
+    w.close()
+
+
+@test
+def ricerca_in_rete():
+    """QLab finto (OSC su TCP con SLIP) e una porta UDP aperta su questo computer."""
+    import json
+    import scriptfollower.netscan as ns
+    assert ns.osc_parse(ns.osc_message("/a/b", 1, 2.5, "x")) == ("/a/b", [1, 2.5, "x"])
+    assert ns.slip_decode(ns.slip_encode(b"\xc0\xdbabc")) == [b"\xc0\xdbabc"]
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+    qport = srv.getsockname()[1]
+
+    def qlab():
+        c, _ = srv.accept()
+        for pkt in ns.slip_decode(c.recv(4096)):
+            if ns.osc_parse(pkt)[0] == "/version":
+                c.sendall(ns.slip_encode(ns.osc_message("/reply/version", json.dumps({"data": "5.4"}))))
+        time.sleep(0.2)
+        c.close()
+    threading.Thread(target=qlab, daemon=True).start()
+    assert ns.qlab_version("127.0.0.1", qport) == "5.4"
+    assert ns.tcp_state("127.0.0.1", qport) == "open"
+    u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    u.bind(("127.0.0.1", 0))
+    uport = u.getsockname()[1]
+    try:
+        found = ns.udp_open_ports("127.0.0.1", ports=(uport, 9), gap=0.3)
+        assert uport in found and 9 not in found, found
+    finally:
+        u.close()
+        srv.close()
+
+
+@test
+def profili_osc_e_comandi():
+    from scriptfollower.osc import clean_targets, find_target, migrate_commands, new_target
+    old = [{"name": "A", "host": "1.1.1.1", "port": 1, "plugin": "qlab"}, {"name": "B", "host": "2.2.2.2"}]
+    ts = clean_targets(old)
+    assert [t["id"] for t in ts] == ["p1", "p2"]
+    pts = [{"commands": [{"target": 1, "cmd": ""}]}]
+    migrate_commands(pts, ts)
+    assert pts[0]["commands"][0]["target_id"] == "p2"
+    ts.append(new_target(ts, "scs", "3.3.3.3"))
+    assert ts[2]["id"] == "p3" and ts[2]["port"] == 58000
+    del ts[0]                                         # eliminato il primo: il comando resta sul suo profilo
+    assert find_target(pts[0]["commands"][0], ts)["name"] == "B"
+    del ts[0]
+    try:
+        find_target(pts[0]["commands"][0], ts)
+        raise AssertionError("profilo eliminato non segnalato")
+    except KeyError:
+        pass
+    assert render({"target_id": "p3", "cmd": "go"}, ts)[:3] == ("3.3.3.3", 58000, "/ctrl/go")
+
+
+@test
+def navigazione_riattivazione_zone():
+    from scriptfollower.main_window import MainWindow
+    from scriptfollower.ui_settings import SettingsDialog
+    w = MainWindow()
+    w.resize(1300, 800)
+    w.show()
+    w.open_pdf(PDF)
+    run(0.2)
+    d = w.doc
+    ks = [next(x.i for x in d.words if x.text == t) for t in ("questo!", "corrente?", "eccolo!")]
+    for k, lab in zip(ks, "ABC"):
+        p = new_point(k, "button")
+        p["label"] = lab
+        w.project.add_point(p)
+    w.refresh_points()
+    A, B, C = w.project.sorted_points()
+    # comando precedente / successivo: si vedono solo se c'è dove andare
+    w._update_nav()
+    assert not w.nav_prev_btn.isVisibleTo(w) and w.nav_next_btn.isVisibleTo(w) and "A" in w.nav_next_btn.text()
+    w.nav_command(1)
+    assert w.nav_word == A["word"] and "B" in w.nav_next_btn.text()
+    w.nav_command(1)
+    assert w.nav_word == B["word"] and "A" in w.nav_prev_btn.text()
+    w.nav_command(-1)
+    assert w.nav_word == A["word"] and w.cueing.pos == -1          # la posizione non cambia
+    w.go_current()
+    assert w.nav_word is None
+    # riattivazione di un pulsante passato e disattivato
+    w.set_mode(False)
+    w.jump_to(ks[1] + 1)
+    w.press_point(C["id"])                                         # disattiva A e B
+    assert w.point_state(B)[1] is False
+    w.reactivate(B["id"])
+    assert w.point_state(B) == ("armed", True)
+    w.press_point(B["id"])
+    assert B["id"] in w.cueing.sent and w.point_state(B)[0] in ("sent", "passed")
+    # zona azzurra allargata e ristretta trascinando i bordi
+    w.set_mode(True)
+    runs = d.excluded_runs()
+    a, b = next((x, y) for x, y in runs if any(d.words[i].text.startswith("(entra") for i in range(x, y + 1)))
+    w._zone_resized("excluded", a, b, a, b + 2)
+    assert not d.words[b + 2].spoken and (a, b + 2) in d.excluded_runs()
+    w._zone_resized("excluded", a, b + 2, a + 1, b + 2)
+    assert d.words[a].spoken and not d.words[a + 1].spoken
+    # profili OSC: aggiungi, configura da un risultato della ricerca, elimina
+    dlg = SettingsDialog(w, 1)
+    n = len(dlg.t_widgets)
+    row = dlg.use_found({"host": "10.0.0.9", "port": 53000, "plugin": "qlab", "name": "QLab 5", "how": "test"})
+    assert len(dlg.t_widgets) == n + 1 and row["plugin"].currentData() == "qlab"
+    dlg._remove_target(dlg.t_widgets[0])
+    ts = dlg.targets()
+    assert len(ts) == n and ts[-1]["host"] == "10.0.0.9" and ts[0]["id"] == "p2"
+    dlg.reject()
     w.project.dirty = False
     w.close()
 

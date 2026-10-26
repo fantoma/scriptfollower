@@ -55,6 +55,9 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
     grafo con il pacchetto di compilazione di Alphacephei (per l'italiano non è pubblico, si chiede a loro),
     più Kaldi, SRILM, Phonetisaurus e un Linux con 32 GB di RAM. Non si fa dall'app. In alternativa c'è il
     modello italiano grande, che ha più parole ma non permette di limitare il vocabolario.
+- **Zone azzurre e viola trascinabili**: in preparazione, porta il mouse sul bordo sinistro della prima parola o
+  sul bordo destro dell'ultima di una zona. Il cursore diventa ↔ e trascinando la zona si allarga o si
+  restringe, con l'anteprima delle parole che entrano o escono.
 - Dallo stesso menu: **＋ Pulsante OSC** o **＋ Annotazione** su quella parola. Il punto «passa» quando il parlato
   arriva a quella parola.
 - Ogni pulsante ha un nome, una nota facoltativa e **più comandi OSC**, inviati nell'ordine. Ogni comando va
@@ -70,7 +73,8 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
   lampeggiano.
 - Sotto «Prossimo evento:» compare la **nota del pulsante**, cioè il promemoria per l'operatore scritto in
   preparazione.
-- Il riquadro **Prossimo evento** mostra le frasi, righe o parole che precedono il pulsante (quante, lo decidi
+- Il riquadro **Prossimo evento** mostra le frasi, righe o parole che precedono il pulsante. Con le frasi si
+  vede almeno anche la frase prima; i puntini di sospensione non spezzano più la frase. (quante, lo decidi
   nelle Impostazioni), con le parole già dette in
   giallo e la parola d'aggancio in verde, poi il pulsante grande. **Spazio** lo invia.
 - L'**ultimo pulsante passato** resta premibile, in arancione se non è stato inviato, finché non premi il pulsante
@@ -81,6 +85,12 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
   Così una frase già detta, se ripetuta, non riporta indietro. Se il pulsante viene premuto in anticipo, il
   limite resta dove è arrivato il parlato. Un riposizionamento a mano più indietro abbassa il limite, e
   «Dall'inizio» lo azzera. La posizione del limite è indicata sotto «Posizione» («ricerca da pag. N»).
+- **▲ Prec.: … / ▼ Succ.: …** (Alt+↑ / Alt+↓), nella barra in alto, spostano la **vista** sul comando
+  precedente o successivo, evidenziandone la riga. La posizione dello spettacolo non cambia. I tasti
+  compaiono solo se esiste un comando in quella direzione. Dopo qualche secondo la vista torna a seguire il
+  parlato, oppure subito con Ctrl+L.
+- **↺ Riattiva questo pulsante** (tasto destro su un pulsante già passato, disattivato o inviato): torna
+  premibile, in arancione, finché non lo premi.
 - **❚❚ Sospendi ascolto** (F8), accanto ad ASCOLTA, passa al modo manuale. Il modello resta caricato, ma la
   posizione si sposta solo a mano e i pulsanti funzionano normalmente. **▶ Riprendi ascolto** riparte dalla
   posizione attuale. Il tempo passato in manuale non entra nelle medie dei tempi.
@@ -111,7 +121,15 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
     scelgono i canali (coppia stereo o canale mono), il volume e se ascoltare **prima o dopo il gate**.
     Dopo il gate si sente esattamente ciò che arriva al riconoscitore, ed è comodo per regolare la soglia.
     Il tasto 🎧 accanto al meter in alto lo accende e lo spegne.
-- **Profili OSC**: due profili con nome, indirizzo IP, porta, appunto e **plugin**.
+- **Profili OSC**: quanti ne servono (**＋ Aggiungi profilo OSC**, **Elimina profilo**), ciascuno con nome,
+  indirizzo IP, porta, appunto e **plugin**. Prima di eliminare un profilo usato dai pulsanti, l'app avvisa.
+  - **🔍 Cerca in rete…** trova **CueStage** (ricerca delle istanze, interfaccia web) e **QLab** (OSC su
+    TCP 53000, riconosciuto dalla versione).
+  - Trova anche le console **ChamSys** e gli altri nodi Art-Net, e le **porte OSC UDP** più usate sui computer
+    accesi. Per l'UDP è solo un indizio: le risposte «porta chiusa» sono limitate a una al secondo, quindi
+    le prove sono distanziate per non dare falsi positivi.
+  - **Configura automaticamente** mette ogni dispositivo certo nel profilo dello stesso tipo ancora da
+    configurare, oppure in un profilo nuovo.
 - **Riquadro**: quanta anteprima mostrare prima del pulsante nel riquadro «Prossimo evento». Si contano le
   ultime **frasi** dette (predefinito: 2), le ultime **righe** del copione così come sono impaginate,
   didascalie comprese, oppure le ultime **parole** dette.

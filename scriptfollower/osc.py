@@ -6,9 +6,10 @@ dei dati (osc_profiles/), con
   commands: [{id, label, address, args, params: [{id, label, type int|float|enum|text, …}], help}]
 Indirizzo e argomenti usano i parametri tra graffe: "/cue/{cue}/start".
 
-Profilo di destinazione (due, nelle Impostazioni): {name, host, port, note, plugin}.
-Comando di un pulsante: {target: 0|1, cmd: id del comando del plugin oppure "" (personalizzato),
-                         values: {parametro: valore}, address, args}.
+Profilo di destinazione (quanti se ne vuole, almeno uno): {id, name, host, port, note, plugin}.
+Comando di un pulsante: {target_id: id del profilo, target: indice (vecchi progetti),
+                         cmd: id del comando del plugin oppure "" (personalizzato), values: {parametro: valore},
+                         address, args}.
 """
 import json
 import os
@@ -24,7 +25,8 @@ except Exception:  # pragma: no cover
 
 BUILTIN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "osc_profiles")
 USER_DIR = data_dir("osc_profiles")
-N_TARGETS = 2
+N_TARGETS = 2                    # profili in un progetto nuovo (se ne possono aggiungere altri)
+MAX_TARGETS = 16
 CUSTOM = ""                      # comando «indirizzo personalizzato»
 
 _cache = None
@@ -59,29 +61,77 @@ def plugin_order():
 
 
 def default_targets():
-    return [{"name": "CueStage", "host": "127.0.0.1", "port": 53000, "note": "", "plugin": "cuestage"},
-            {"name": "Luci", "host": "192.168.1.50", "port": 8000, "note": "", "plugin": "chamsys_magicq"}]
+    return [{"id": "p1", "name": "CueStage", "host": "127.0.0.1", "port": 53000, "note": "", "plugin": "cuestage"},
+            {"id": "p2", "name": "Luci", "host": "192.168.1.50", "port": 8000, "note": "", "plugin": "chamsys_magicq"}]
+
+
+def new_target(targets, plugin="generico", host="", port=None, name=None):
+    """Un profilo nuovo con un id che non c'è ancora tra targets."""
+    ids = {t.get("id") for t in targets or []}
+    k = len(targets or []) + 1
+    while f"p{k}" in ids:
+        k += 1
+    p = plugins().get(plugin) or {}
+    return {"id": f"p{k}", "name": name or (p.get("name", "").split(" (")[0] if plugin != "generico"
+                                            else f"Profilo {k}"),
+            "host": host, "port": int(port or p.get("port") or 8000), "note": "", "plugin": plugin}
 
 
 def clean_targets(targets):
-    """Sempre esattamente N_TARGETS profili completi."""
-    base = default_targets()
-    out = []
-    for i in range(N_TARGETS):
-        t = dict(base[i])
-        if targets and i < len(targets) and isinstance(targets[i], dict):
-            t.update({k: v for k, v in targets[i].items() if k in t})
+    """Profili completi (almeno uno). I vecchi progetti senza id ricevono «p1», «p2»… per posizione."""
+    if not targets:
+        return default_targets()
+    out, ids = [], set()
+    for i, src in enumerate(targets[:MAX_TARGETS]):
+        if not isinstance(src, dict):
+            continue
+        t = {"id": f"p{i + 1}", "name": f"Profilo {i + 1}", "host": "", "port": 8000, "note": "",
+             "plugin": "generico"}
+        t.update({k: v for k, v in src.items() if k in t})
         try:
             t["port"] = max(1, min(65535, int(t["port"])))
         except (TypeError, ValueError):
-            t["port"] = base[i]["port"]
+            t["port"] = 8000
+        t["id"] = str(t["id"] or f"p{i + 1}")
+        while t["id"] in ids:
+            t["id"] += "b"
+        ids.add(t["id"])
         t["name"] = str(t["name"] or f"Profilo {i + 1}")
         t["host"] = str(t["host"] or "").strip()
         t["note"] = str(t["note"] or "")
         if t["plugin"] not in plugins():
             t["plugin"] = "generico"
         out.append(t)
-    return out
+    return out or default_targets()
+
+
+def find_target(command, targets):
+    """Profilo a cui va il comando: per id (o per posizione nei vecchi progetti). KeyError se non c'è più."""
+    tid = command.get("target_id")
+    if tid:
+        for t in targets:
+            if t["id"] == tid:
+                return t
+        raise KeyError("il profilo OSC di questo comando è stato eliminato")
+    i = int(command.get("target") or 0)
+    if 0 <= i < len(targets):
+        return targets[i]
+    raise KeyError(f"il profilo OSC n. {i + 1} non esiste più")
+
+
+def migrate_commands(points, targets):
+    """Dà a ogni comando l'id del suo profilo (i vecchi progetti avevano solo la posizione)."""
+    targets = clean_targets(targets)
+    for p in points or []:
+        for c in p.get("commands") or []:
+            if not c.get("target_id"):
+                i = int(c.get("target") or 0)
+                if 0 <= i < len(targets):
+                    c["target_id"] = targets[i]["id"]
+
+
+def commands_using(points, target_id):
+    return sum(1 for p in points or [] for c in p.get("commands") or [] if c.get("target_id") == target_id)
 
 
 # ---------------------------------------------------------------------------- argomenti
@@ -152,8 +202,7 @@ def param_values(cmd, values):
 def render(command, targets):
     """(host, port, indirizzo, testo degli argomenti) di un comando di un pulsante."""
     targets = clean_targets(targets)
-    ti = max(0, min(N_TARGETS - 1, int(command.get("target") or 0)))
-    t = targets[ti]
+    t = find_target(command, targets)
     cid = command.get("cmd") or CUSTOM
     if cid == CUSTOM:
         address, args = command.get("address") or "/", command.get("args") or ""
@@ -173,8 +222,10 @@ def render(command, targets):
 def describe(command, targets):
     """Testo breve: «CueStage › Avvia una cue · Cue 12»."""
     targets = clean_targets(targets)
-    ti = max(0, min(N_TARGETS - 1, int(command.get("target") or 0)))
-    t = targets[ti]
+    try:
+        t = find_target(command, targets)
+    except KeyError as e:
+        return f"⚠ {e}"
     cid = command.get("cmd") or CUSTOM
     if cid == CUSTOM:
         return f"{t['name']} › {command.get('address') or '/'} {command.get('args') or ''}".strip()

@@ -103,7 +103,10 @@ class PointWidget(QFrame):
             self.btn.setStyleSheet(style)
             self._btn_text(not prep and state == "sent")
             # in preparazione il clic apre la modifica: il pulsante resta sempre attivo
-            self.btn.setEnabled(True if prep else enabled)
+            # resta sempre cliccabile (anche il tasto destro, per «Riattiva»): lo stato lo dice il colore
+            self.btn.setEnabled(True)
+            self.btn.setToolTip(self.btn.toolTip().split("\n—")[0] + ("" if prep or enabled else
+                                "\n— già passato: tasto destro › Riattiva"))
         else:
             col = self.point.get("color") or "#e0b040"
             if not prep and state == "passed":
@@ -126,6 +129,7 @@ class PointWidget(QFrame):
 
 class Canvas(QWidget):
     wordMenu = Signal(int, int, QPoint)     # prima parola, ultima parola, posizione globale
+    zoneResized = Signal(str, int, int, int, int)   # "excluded"|"improv", vecchio inizio/fine, nuovo inizio/fine
     wordDouble = Signal(int)
     pointPressed = Signal(str)
     pointContext = Signal(str, QPoint)
@@ -146,7 +150,10 @@ class Canvas(QWidget):
         self._cache = {}
         self._sel = None                    # (prima, ultima) parole selezionate col trascinamento
         self._press_word = None
-        self.setMouseTracking(False)
+        self.setMouseTracking(True)         # in preparazione: cursore sui bordi delle zone
+        self._resize = None                 # trascinamento del bordo di una zona: {kind, a, b, side, na, nb}
+        self.flash_pid = None               # punto da evidenziare (Comando precedente / successivo)
+        self.flash_until = 0.0
         self.setAttribute(Qt.WA_OpaquePaintEvent)
 
     # ------------------------------------------------------------ impaginazione
@@ -333,6 +340,32 @@ class Canvas(QWidget):
             # numero di pagina
             p.setPen(QColor(120, 120, 128))
             p.drawText(QRectF(MARGIN, py + ph * s + 1, pw * s, GAP - 2), Qt.AlignCenter, f"{k + 1}")
+        # bordo di una zona in trascinamento: anteprima del nuovo tratto
+        if self._resize:
+            r = self._resize
+            col = QColor(70, 120, 200) if r["kind"] == "excluded" else QColor(150, 80, 210)
+            for i in range(min(r["na"], r["a"]), max(r["nb"], r["b"]) + 1):
+                inside = r["na"] <= i <= r["nb"]
+                wr = self.word_rect(i).adjusted(-1, -1, 1, 1)
+                if inside:
+                    p.fillRect(wr, QColor(col.red(), col.green(), col.blue(), 120))
+                else:                       # parole che escono dalla zona
+                    p.setPen(QPen(QColor(255, 255, 255, 200), 1, Qt.DashLine))
+                    p.setBrush(Qt.NoBrush)
+                    p.drawRect(wr)
+            for i, left in ((r["na"], True), (r["nb"], False)):
+                wr = self.word_rect(i)
+                x = wr.left() - 2 if left else wr.right() + 2
+                p.setPen(QPen(QColor(255, 255, 255), 3))
+                p.drawLine(QPointF(x, wr.top() - 3), QPointF(x, wr.bottom() + 3))
+        # punto raggiunto con «Comando precedente / successivo»
+        if self.flash_pid and time.monotonic() < self.flash_until:
+            fp = next((q for q in self.points if q["id"] == self.flash_pid), None)
+            if fp is not None:
+                lr = self.line_rect(self.doc.words[fp["word"]].line)
+                p.setPen(QPen(QColor(255, 150, 0), 3))
+                p.setBrush(QColor(255, 150, 0, 40))
+                p.drawRoundedRect(lr.adjusted(-6, -4, 6, 4), 4, 4)
         # riga e parola correnti
         if 0 <= self.cur_word < len(self.doc.words):
             w = self.doc.words[self.cur_word]
@@ -380,8 +413,36 @@ class Canvas(QWidget):
         p.end()
 
     # ------------------------------------------------------------ mouse
+    # ------------------------------------------------------------ bordi delle zone (preparazione)
+    def _edge_at(self, pos):
+        """(tipo, inizio, fine, lato) se il mouse è sul bordo di una zona azzurra o viola."""
+        if self.doc is None or not self.prep:
+            return None
+        i = self.word_at(pos)
+        if i is None:
+            return None
+        wr = self.word_rect(i)
+        x = pos.x()
+        tol = max(5.0, min(9.0, wr.width() * 0.3))
+        zones = [("excluded", a, b) for a, b in self.doc.excluded_runs()]
+        zones += [("improv", a, b) for a, b in self.doc.improv]
+        for kind, a, b in zones:
+            if a <= i <= b:
+                if i == a and x <= wr.left() + tol:
+                    return kind, a, b, "start"
+                if i == b and x >= wr.right() - tol:
+                    return kind, a, b, "end"
+        return None
+
     def mousePressEvent(self, e):
         i = self.word_at(e.position())
+        edge = self._edge_at(e.position()) if e.button() == Qt.LeftButton else None
+        if edge:
+            kind, a, b, side = edge
+            self._resize = {"kind": kind, "a": a, "b": b, "side": side, "na": a, "nb": b}
+            self._sel = None
+            self.update()
+            return
         if e.button() == Qt.LeftButton and self.prep:
             self._press_word = i
             self._sel = (i, i) if i is not None else None
@@ -395,6 +456,19 @@ class Canvas(QWidget):
                 self.wordMenu.emit(i, i, e.globalPosition().toPoint())
 
     def mouseMoveEvent(self, e):
+        if self._resize:
+            i = self.word_at(e.position())
+            r = self._resize
+            if i is not None and self.doc.words[i].page == self.doc.words[r["a"]].page:
+                if r["side"] == "start":
+                    r["na"], r["nb"] = min(i, r["b"]), r["b"]
+                else:
+                    r["na"], r["nb"] = r["a"], max(i, r["a"])
+                self.update()
+            return
+        if not (e.buttons() & Qt.LeftButton):
+            self.setCursor(Qt.SizeHorCursor if self._edge_at(e.position()) else Qt.ArrowCursor)
+            return
         if self._press_word is not None and self.prep:
             i = self.word_at(e.position())
             if i is not None:
@@ -404,6 +478,12 @@ class Canvas(QWidget):
                     self.update()
 
     def mouseReleaseEvent(self, e):
+        if self._resize:
+            r, self._resize = self._resize, None
+            self.update()
+            if (r["na"], r["nb"]) != (r["a"], r["b"]):
+                self.zoneResized.emit(r["kind"], r["a"], r["b"], r["na"], r["nb"])
+            return
         if e.button() == Qt.LeftButton and self.prep and self._press_word is not None:
             self._press_word = None
             if self._sel:

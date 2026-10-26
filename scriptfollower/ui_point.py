@@ -6,8 +6,14 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpin
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
                                QPushButton, QSpinBox, QVBoxLayout, QWidget)
 
-from .osc import CUSTOM, N_TARGETS, clean_targets, describe, find_command, plugins, render, send_commands
+from .osc import CUSTOM, clean_targets, describe, find_command, find_target, plugins, render, send_commands
 from .project import NOTE_COLORS
+
+
+def _rows_height(w, rows, row=None):
+    """Altezza in pixel per mostrare «rows» righe di testo nel widget w."""
+    fm = w.fontMetrics()
+    return int((row or fm.lineSpacing()) * rows + 2 * w.frameWidth() + 12)
 
 
 class CommandEditor(QWidget):
@@ -25,7 +31,7 @@ class CommandEditor(QWidget):
         self.target = QComboBox()
         for i, t in enumerate(self.targets):
             pl = plugins().get(t["plugin"], {}).get("name", t["plugin"])
-            self.target.addItem(f"{i + 1}. {t['name']}  ({pl} · {t['host']}:{t['port']})", i)
+            self.target.addItem(f"{i + 1}. {t['name']}  ({pl} · {t['host']}:{t['port']})", t["id"])
         self.target.currentIndexChanged.connect(self._target_changed)
         f.addRow("Profilo OSC", self.target)
         self.command = QComboBox()
@@ -66,7 +72,11 @@ class CommandEditor(QWidget):
             self.preview.setText("")
             return
         self._loading = True
-        self.target.setCurrentIndex(max(0, min(N_TARGETS - 1, int(cmd.get("target") or 0))))
+        try:
+            tid = find_target(cmd, self.targets)["id"]
+        except KeyError:
+            tid = self.targets[0]["id"]
+        self.target.setCurrentIndex(max(0, self.target.findData(tid)))
         self._fill_commands()
         i = self.command.findData(cmd.get("cmd") or CUSTOM)
         self.command.setCurrentIndex(max(0, i))
@@ -77,7 +87,8 @@ class CommandEditor(QWidget):
         self._update_preview()
 
     def _plugin(self):
-        t = self.targets[self.target.currentData() or 0]
+        tid = self.target.currentData()
+        t = next((x for x in self.targets if x["id"] == tid), self.targets[0])
         return t["plugin"]
 
     def _fill_commands(self):
@@ -94,7 +105,8 @@ class CommandEditor(QWidget):
         if self._loading or self.cmd is None:
             return
         old = self.command.currentData()
-        self.cmd["target"] = self.target.currentData() or 0
+        self.cmd["target_id"] = self.target.currentData()
+        self.cmd["target"] = max(0, self.target.currentIndex())
         self._fill_commands()
         i = self.command.findData(old)
         self.command.setCurrentIndex(i if i >= 0 else 0)
@@ -198,13 +210,16 @@ class PointDialog(QDialog):
             self.label = QLineEdit(self.p.get("label") or "")
             self.label.setPlaceholderText("es. LUCI 4 · BLU")
             f.addRow("Nome del pulsante", self.label)
-            self.text = QLineEdit(self.p.get("text") or "")
+            self.text = QPlainTextEdit(self.p.get("text") or "")
             self.text.setPlaceholderText("promemoria per l'operatore: compare sotto «Prossimo evento» (facoltativo)")
+            self.text.setTabChangesFocus(True)
+            self.text.setMinimumHeight(_rows_height(self.text, 5))
             f.addRow("Nota", self.text)
         else:
             self.text = QPlainTextEdit(self.p.get("text") or "")
             self.text.setPlaceholderText("es. Entra Camilla da destra")
-            self.text.setFixedHeight(90)
+            self.text.setTabChangesFocus(True)
+            self.text.setMinimumHeight(_rows_height(self.text, 5))
             f.addRow("Testo", self.text)
             self.color = QComboBox()
             names = ["Giallo", "Azzurro", "Rosso", "Verde", "Viola"]
@@ -218,7 +233,9 @@ class PointDialog(QDialog):
             gv = QVBoxLayout(g)
             row = QHBoxLayout()
             self.list = QListWidget()
-            self.list.setMinimumHeight(110)
+            h = _rows_height(self.list, 5, row=self.list.fontMetrics().height() + 6)
+            self.list.setMinimumHeight(h)
+            self.list.setMaximumHeight(h)
             self.list.currentRowChanged.connect(self._select)
             row.addWidget(self.list, 1)
             col = QVBoxLayout()
@@ -249,7 +266,7 @@ class PointDialog(QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
-        self.resize(620, 640 if is_btn else 260)
+        self.resize(640, 720 if is_btn else 300)
 
     # ------------------------------------------------------------ comandi
     def _cmds(self):
@@ -266,11 +283,15 @@ class PointDialog(QDialog):
 
     def _add(self):
         last = self._cmds()[-1] if self._cmds() else None
-        t = int(last.get("target") or 0) if last else 0
-        pl = self.targets[t]["plugin"]
+        try:
+            tt = find_target(last, self.targets) if last else self.targets[0]
+        except KeyError:
+            tt = self.targets[0]
+        t = self.targets.index(tt)
+        pl = tt["plugin"]
         first = (plugins().get(pl) or {}).get("commands") or []
         cid = first[0]["id"] if first and not (pl == "generico") else CUSTOM
-        c = {"target": t, "cmd": cid, "values": {}, "address": "/", "args": ""}
+        c = {"target": t, "target_id": tt["id"], "cmd": cid, "values": {}, "address": "/", "args": ""}
         self._cmds().append(c)
         self.list.addItem(QListWidgetItem(describe(c, self.targets)))
         self.list.setCurrentRow(self.list.count() - 1)
@@ -313,7 +334,7 @@ class PointDialog(QDialog):
     def result_point(self):
         if self.p["kind"] == "button":
             self.p["label"] = self.label.text().strip() or "Pulsante"
-            self.p["text"] = self.text.text().strip()
+            self.p["text"] = self.text.toPlainText().strip()
         else:
             self.p["text"] = self.text.toPlainText().strip()
             self.p["color"] = self.color.currentData()

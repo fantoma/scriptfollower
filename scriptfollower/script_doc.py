@@ -18,7 +18,16 @@ except Exception:  # pragma: no cover - versioni vecchie
 
 _LABEL = re.compile(r"^[A-ZÀ-Ý][A-ZÀ-Ý0-9 ._\-–]{2,}:$")   # «MUSICA:», «LUCI:», «AUDIO:»
 _LEADER = re.compile(r"\.{5,}")                            # puntini dell'indice
-_SENT_END = re.compile(r"[.!?…]+[»”\"’')\]]*$")
+_CLOSERS = "»”\"’')]"
+
+
+def ends_sentence(text):
+    """La parola chiude una frase: «.», «!», «?» finali. I puntini di sospensione («…», «...») no: nei copioni
+    stanno quasi sempre a metà frase («No, il cane no … ma perché»)."""
+    t = text.rstrip(_CLOSERS)
+    if not t or t.endswith("…") or t.endswith(".."):
+        return False
+    return t[-1] in ".!?"
 ITALIC, BOLD = 2, 16
 
 
@@ -205,7 +214,31 @@ class ScriptDoc:
             a = default_alias(t)
         return normalize(a) if a else [t]
 
+    def excluded_runs(self):
+        """Tratti consecutivi di parole escluse dal riconoscimento (le zone azzurre), senza le parti
+        improvvisate: [(prima, ultima)]. Un tratto non attraversa le pagine."""
+        if self._runs is None:
+            zone = set()
+            for a, b in self.improv:
+                zone.update(range(a, b + 1))
+            runs, start = [], None
+            for w in self.words:
+                ex = not w.spoken and w.i not in zone
+                if ex and start is not None and self.words[start].page != w.page:
+                    runs.append((start, w.i - 1))
+                    start = None
+                if ex and start is None:
+                    start = w.i
+                elif not ex and start is not None:
+                    runs.append((start, w.i - 1))
+                    start = None
+            if start is not None:
+                runs.append((start, len(self.words) - 1))
+            self._runs = runs
+        return self._runs
+
     def rebuild(self):
+        self._runs = None
         self.tokens = []                 # token normalizzati delle parti dette
         self.token_word = []             # token -> indice della parola
         zone = set()
@@ -259,8 +292,11 @@ class ScriptDoc:
                 return w.t0 + len(w.tokens) - 1
         return -1
 
-    def sentences_before(self, word_i, n=2, max_words=45):
-        """Le ultime n frasi dette fino alla parola word_i compresa: [indici di parola]."""
+    def sentences_before(self, word_i, n=2, max_words=45, min_words=18):
+        """Le ultime n frasi dette fino alla parola word_i compresa: [indici di parola].
+
+        Se il testo è poco (frasi brevi, «Sì.» «No.»), si aggiungono frasi intere precedenti fino ad avere
+        almeno min_words parole: così si vede sempre anche la frase prima."""
         out = []
         count = 0
         i = min(word_i, len(self.words) - 1)
@@ -268,9 +304,9 @@ class ScriptDoc:
         while i >= 0 and len(out) < max_words:
             w = self.words[i]
             if w.spoken or i == word_i:
-                if out and _SENT_END.search(w.text):
+                if out and ends_sentence(w.text):
                     count += 1
-                    if count >= n:
+                    if count >= n and len(out) >= min_words:
                         break
                 out.append(i)
             i -= 1

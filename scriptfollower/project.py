@@ -123,11 +123,13 @@ class Cueing:
         self.pos = -1                    # indice della parola corrente (-1 = prima dell'inizio)
         self.sent = set()                # pulsanti inviati
         self.closed = set()              # pulsanti disattivati dalla pressione di uno successivo
+        self.forced = set()              # pulsanti riattivati a mano: premibili finché non si premono
 
     def reset(self):
         self.pos = -1
         self.sent.clear()
         self.closed.clear()
+        self.forced.clear()
 
     def set_pos(self, word):
         back = word < self.pos
@@ -137,6 +139,7 @@ class Cueing:
                 if p["word"] > word:
                     self.sent.discard(p["id"])
                     self.closed.discard(p["id"])
+                    self.forced.discard(p["id"])
 
     def buttons(self):
         return [p for p in self.project.sorted_points() if p["kind"] == "button"]
@@ -163,9 +166,17 @@ class Cueing:
                 return p
         return None
 
+    def reactivate(self, p):
+        """Riattivazione a mano di un pulsante già passato, disattivato o inviato."""
+        self.sent.discard(p["id"])
+        self.closed.discard(p["id"])
+        self.forced.add(p["id"])
+
     def enabled(self, p):
         if p["kind"] != "button":
             return not self.passed(p)
+        if p["id"] in self.forced:
+            return True
         if p["id"] in self.closed:
             return False
         if not self.passed(p):
@@ -177,6 +188,7 @@ class Cueing:
         """Il pulsante p è stato premuto: i pulsanti precedenti si disattivano."""
         self.sent.add(p["id"])
         self.closed.discard(p["id"])
+        self.forced.discard(p["id"])
         for b in self.buttons():
             if b["word"] < p["word"] or (b["word"] == p["word"] and b["id"] != p["id"]
                                           and self.buttons().index(b) < self.buttons().index(p)):

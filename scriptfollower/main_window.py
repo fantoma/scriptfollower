@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox, QFileD
 from . import __version__
 from .align import Aligner, normalize
 from .audio_input import AudioInput, audio_settings
-from .osc import clean_targets, describe, send_commands
+from .osc import clean_targets, describe, migrate_commands, send_commands
 from .project import EXT, FILE_FILTER, Cueing, Project, new_point
 from .recognizer import Recognizer, find_model
 from .script_doc import ScriptDoc
@@ -180,6 +180,25 @@ class MainWindow(QMainWindow):
         r1.addWidget(self.timing_btn)
         nav.addLayout(r2)
         bar.addLayout(nav)
+        # Comando precedente / successivo: si vedono solo se c'è un comando a cui andare
+        cv = QVBoxLayout()
+        cv.setSpacing(4)
+        self.nav_prev_btn = QPushButton()
+        self.nav_next_btn = QPushButton()
+        for b, d, tip in ((self.nav_prev_btn, -1, "Mostra il comando precedente nel copione (Alt+↑)"),
+                          (self.nav_next_btn, 1, "Mostra il comando successivo nel copione (Alt+↓)")):
+            b.setFixedHeight(32)
+            b.setFixedWidth(190)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setToolTip(tip + ". Solo la vista si sposta: la posizione dello spettacolo non cambia.")
+            b.setStyleSheet("QPushButton{text-align:left;padding:0 8px;font-size:12px;}")
+            b.clicked.connect(lambda _c=False, d=d: self.nav_command(d))
+            sp = b.sizePolicy()
+            sp.setRetainSizeWhenHidden(True)        # la barra non cambia forma quando un tasto sparisce
+            b.setSizePolicy(sp)
+            cv.addWidget(b)
+        bar.addLayout(cv)
+        self.nav_word = None                         # comando mostrato con i tasti (None = posizione attuale)
         bar.addSpacing(6)
         self.meter = GateMeter(self.audio, compact=True)
         self.meter.set_threshold(self.audio_cfg["threshold_db"])
@@ -222,6 +241,7 @@ class MainWindow(QMainWindow):
         c.wordDouble.connect(self.jump_to)
         c.pointPressed.connect(self.press_point)
         c.pointContext.connect(self._point_menu)
+        c.zoneResized.connect(self._zone_resized)
         self.split.addWidget(self.view)
         self.panel = NextPanel()
         self.panel.pressed.connect(self.press_point)
@@ -270,10 +290,12 @@ class MainWindow(QMainWindow):
         a = add(m, "Invia il prossimo evento", self.fire_next)
         a.setShortcut(QKeySequence(Qt.Key_Space))
         a.setShortcutContext(Qt.WindowShortcut)
+        add(m, "Mostra il comando precedente", lambda: self.nav_command(-1), "Alt+Up")
+        add(m, "Mostra il comando successivo", lambda: self.nav_command(1), "Alt+Down")
         add(m, "Riga precedente", lambda: self.step_line(-1), "Ctrl+Up")
         add(m, "Riga successiva", lambda: self.step_line(1), "Ctrl+Down")
         add(m, "Torna all'inizio", self.restart, "Ctrl+Home")
-        add(m, "Vai alla posizione corrente", lambda: self.view.ensure_word(self.cueing.pos, force=True), "Ctrl+L")
+        add(m, "Vai alla posizione corrente", self.go_current, "Ctrl+L")
         m.addSeparator()
         add(m, "Simula il parlato…", self.simulate_dialog, "F4")
         m.addSeparator()
@@ -363,6 +385,7 @@ class MainWindow(QMainWindow):
         self._blink = not self._blink
         self.view.canvas.set_blink(self._blink)
         self._update_panel()
+        self._update_nav()
 
     # =========================================================== file
     def _startup_open(self, path):
@@ -464,6 +487,8 @@ class MainWindow(QMainWindow):
         if self.doc is not None:
             self.doc.close()
         self.project = p
+        p.targets = clean_targets(p.targets)
+        migrate_commands(p.points, p.targets)        # i vecchi progetti: comandi legati al profilo per id
         self.doc = doc
         doc.set_overrides(p.overrides)
         doc.set_improv(p.improv)
@@ -737,6 +762,8 @@ class MainWindow(QMainWindow):
                 return "passed", False
             nn = cu.next_note()
             return ("next" if nn and nn["id"] == p["id"] else "future"), True
+        if p["id"] in cu.forced:
+            return "armed", True                 # riattivato a mano
         if p["id"] in cu.closed:
             return "closed", False
         nb = cu.next_button()
@@ -752,6 +779,78 @@ class MainWindow(QMainWindow):
     def refresh_states(self):
         self.view.canvas.set_states({p["id"]: self.point_state(p) for p in self.project.points})
         self._update_panel()
+        self._update_nav()
+
+    # =========================================================== Comando precedente / successivo
+    def go_current(self):
+        self.nav_word = None
+        self.view.manual_until = 0.0
+        self.view.ensure_word(self.cueing.pos, force=True)
+        self._update_nav()
+
+    def _nav_ref(self):
+        """Da dove si cerca: il comando mostrato con i tasti, finché la vista non torna a seguire il parlato."""
+        if self.nav_word is not None and time.monotonic() < self.view.manual_until:
+            return self.nav_word, True
+        self.nav_word = None
+        return self.cueing.pos, False
+
+    def _nav_target(self, d):
+        ref, from_nav = self._nav_ref()
+        btns = [p for p in self.project.sorted_points() if p["kind"] == "button"]
+        if d > 0:
+            return next((b for b in btns if b["word"] > ref), None)
+        prev = [b for b in btns if b["word"] < ref or (not from_nav and b["word"] == ref)]
+        return prev[-1] if prev else None
+
+    def _update_nav(self):
+        if not hasattr(self, "nav_prev_btn"):
+            return
+        for b, d, arrow in ((self.nav_prev_btn, -1, "▲ Prec.:"), (self.nav_next_btn, 1, "▼ Succ.:")):
+            t = self._nav_target(d) if self.doc is not None else None
+            b.setVisible(t is not None)
+            if t is not None:
+                label = t.get("label") or "Pulsante"
+                b.setText(f"{arrow} {label[:20] + '…' if len(label) > 21 else label}")
+
+    def nav_command(self, d):
+        t = self._nav_target(d)
+        if t is None:
+            return
+        self.nav_word = t["word"]
+        self.view.ensure_word(t["word"], force=True)
+        self.view.manual_until = time.monotonic() + 8.0      # la vista resta lì per qualche secondo
+        c = self.view.canvas
+        c.flash_pid, c.flash_until = t["id"], time.monotonic() + 2.5
+        c.update()
+        QTimer.singleShot(2600, c.update)
+        self._update_nav()
+        w = self.doc.words[t["word"]]
+        self.status(f"Comando «{t.get('label')}» · pagina {w.page + 1} (la vista torna a seguire il parlato "
+                    "dopo qualche secondo; Ctrl+L per tornare subito)")
+
+    # =========================================================== zone trascinate in preparazione
+    def _zone_resized(self, kind, a, b, na, nb):
+        if self.doc is None:
+            return
+        old, new = set(range(a, b + 1)), set(range(na, nb + 1))
+        if kind == "improv":
+            self.doc.set_improv([z for z in self.doc.improv if z != (a, b)] + [(na, nb)])
+            self._improv_changed()
+        else:
+            if old - new:
+                self.doc.toggle_spoken(sorted(old - new), True)
+            if new - old:
+                self.doc.toggle_spoken(sorted(new - old), False)
+            self.project.overrides = dict(self.doc.overrides)
+            self._mark_dirty()
+            self._rebuild_aligner()
+            self.view.canvas.update()
+            if self.listening:
+                self.stop_listen()
+                self.start_listen()
+        self.status(f"Zona {'improvvisata' if kind == 'improv' else 'esclusa'}: «{self.doc.words[na].text}» … "
+                    f"«{self.doc.words[nb].text}»")
 
     # =========================================================== tempi (euristica)
     def _timing_events(self, old, new, manual):
@@ -850,7 +949,7 @@ class MainWindow(QMainWindow):
             return
         st, en = self.point_state(p)
         if not en:
-            self.status(f"«{p.get('label')}» è già passato: disattivato")
+            self.status(f"«{p.get('label')}» è già passato: disattivato (tasto destro › Riattiva)")
             return
         sent, errors = send_commands(p.get("commands"), self.project.targets)
         if not self.cueing.passed(p):            # premuto prima che il parlato ci arrivi: l'evento è adesso
@@ -900,6 +999,14 @@ class MainWindow(QMainWindow):
             self._mark_dirty()
             self.refresh_points()
 
+    def reactivate(self, pid):
+        p = self.project.point(pid)
+        if p is None or p["kind"] != "button":
+            return
+        self.cueing.reactivate(p)
+        self.refresh_states()
+        self.status(f"«{p.get('label')}» riattivato: si può premere di nuovo")
+
     def _point_menu(self, pid, gpos):
         p = self.project.point(pid)
         if p is None:
@@ -911,6 +1018,9 @@ class MainWindow(QMainWindow):
                 sent, errors = send_commands(p.get("commands"), self.project.targets)
                 self.status(("⚠ " + " · ".join(errors)) if errors else "Prova inviata: " + " · ".join(sent))
             m.addAction("Prova invio (senza cambiare lo stato)", test)
+            st, en = self.point_state(p)
+            if not en or st in ("sent", "passed", "closed"):
+                m.addAction("↺ Riattiva questo pulsante", lambda: self.reactivate(pid))
         m.addAction("Vai qui", lambda: self.jump_to(p["word"]))
         m.addSeparator()
         m.addAction("Elimina", lambda: self.delete_point(pid))

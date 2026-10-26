@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QProgressBar, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 from .audio_input import audio_settings, list_input_devices, list_output_devices, parse_channels
-from .osc import N_TARGETS, clean_targets, plugin_order, plugins
+from .osc import clean_targets, commands_using, new_target, plugin_order, plugins
 from .recognizer import MODEL_NAME, MODEL_SIZE_MB, download_model, is_model, list_models, model_dirs
 from .system import data_dir_label
 from .ui_meter import GateMeter
@@ -299,48 +299,105 @@ class SettingsDialog(QDialog):
     def _build_osc(self):
         w = QWidget()
         v = QVBoxLayout(w)
-        intro = QLabel("Due profili di destinazione per i pulsanti. Il <b>plugin</b> dice che cosa c'è dall'altra "
-                       "parte (CueStage, QLab, SCS, ChamSys…) e offre i suoi comandi già pronti nei pulsanti; "
-                       "con «Generico» scrivi indirizzo e argomenti a mano. I profili sono salvati nel progetto.")
+        intro = QLabel("Profili di destinazione per i pulsanti (quanti ne servono). Il <b>plugin</b> dice che cosa "
+                       "c'è dall'altra parte (CueStage, QLab, SCS, ChamSys…) e offre i suoi comandi già pronti nei "
+                       "pulsanti; con «Generico» scrivi indirizzo e argomenti a mano. I profili sono salvati nel "
+                       "progetto.")
         intro.setWordWrap(True)
         v.addWidget(intro)
+        row = QHBoxLayout()
+        add = QPushButton("＋ Aggiungi profilo OSC")
+        add.clicked.connect(lambda: self._add_target())
+        row.addWidget(add)
+        scan = QPushButton("🔍 Cerca in rete…")
+        scan.setToolTip("Cerca CueStage, QLab, console ChamSys e porte OSC aperte nella rete locale, "
+                        "e configura i profili")
+        scan.clicked.connect(self._scan)
+        row.addWidget(scan)
+        row.addStretch(1)
+        v.addLayout(row)
+        from PySide6.QtWidgets import QFrame, QScrollArea
+        inner = QWidget()
+        self.t_box = QVBoxLayout(inner)
+        self.t_box.setContentsMargins(0, 0, 0, 0)
+        self.t_box.addStretch(1)
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setFrameShape(QFrame.NoFrame)
+        sa.setWidget(inner)
+        v.addWidget(sa, 1)
         self.t_widgets = []
-        for i, t in enumerate(clean_targets(self.mw.project.targets)):
-            g = QGroupBox(f"Profilo OSC {i + 1}")
-            f = QFormLayout(g)
-            name = QLineEdit(t["name"])
-            f.addRow("Nome", name)
-            plug = QComboBox()
-            for pid in plugin_order():
-                plug.addItem(plugins()[pid]["name"], pid)
-            plug.setCurrentIndex(max(0, plug.findData(t["plugin"])))
-            f.addRow("Plugin", plug)
-            hr = QHBoxLayout()
-            host = QLineEdit(t["host"])
-            host.setPlaceholderText("indirizzo IP, es. 192.168.1.50 (127.0.0.1 = questo computer)")
-            hr.addWidget(host, 1)
-            port = QSpinBox()
-            port.setRange(1, 65535)
-            port.setValue(int(t["port"]))
-            hr.addWidget(QLabel("Porta"))
-            hr.addWidget(port)
-            f.addRow("Indirizzo", hr)
-            note = QPlainTextEdit(t["note"])
-            note.setPlaceholderText("Appunto del profilo (es. «MagicQ in regia, playback 1 = scena»)")
-            note.setFixedHeight(54)
-            f.addRow("Appunto", note)
-            pnotes = QLabel()
-            pnotes.setWordWrap(True)
-            pnotes.setStyleSheet("color:#999; font-size:11px;")
-            f.addRow(pnotes)
-            row = {"name": name, "plugin": plug, "host": host, "port": port, "note": note, "pnotes": pnotes,
-                   "last_plugin": t["plugin"]}
-            plug.currentIndexChanged.connect(lambda _x, r=row: self._plugin_changed(r))
-            self._plugin_changed(row, first=True)
-            self.t_widgets.append(row)
-            v.addWidget(g)
-        v.addStretch(1)
+        for t in clean_targets(self.mw.project.targets):
+            self._add_target(t)
         self.tabs.addTab(w, "OSC")
+
+    def _add_target(self, t=None):
+        if t is None:
+            t = new_target(self.targets())
+        g = QGroupBox()
+        f = QFormLayout(g)
+        head = QHBoxLayout()
+        title = QLabel()
+        title.setStyleSheet("font-weight:bold;")
+        head.addWidget(title)
+        head.addStretch(1)
+        rm = QPushButton("Elimina profilo")
+        head.addWidget(rm)
+        f.addRow(head)
+        name = QLineEdit(t["name"])
+        f.addRow("Nome", name)
+        plug = QComboBox()
+        for pid in plugin_order():
+            plug.addItem(plugins()[pid]["name"], pid)
+        plug.setCurrentIndex(max(0, plug.findData(t["plugin"])))
+        f.addRow("Plugin", plug)
+        hr = QHBoxLayout()
+        host = QLineEdit(t["host"])
+        host.setPlaceholderText("indirizzo IP, es. 192.168.1.50 (127.0.0.1 = questo computer)")
+        hr.addWidget(host, 1)
+        port = QSpinBox()
+        port.setRange(1, 65535)
+        port.setValue(int(t["port"]))
+        hr.addWidget(QLabel("Porta"))
+        hr.addWidget(port)
+        f.addRow("Indirizzo", hr)
+        note = QPlainTextEdit(t["note"])
+        note.setPlaceholderText("Appunto del profilo (es. «MagicQ in regia, playback 1 = scena»)")
+        note.setFixedHeight(54)
+        f.addRow("Appunto", note)
+        pnotes = QLabel()
+        pnotes.setWordWrap(True)
+        pnotes.setStyleSheet("color:#999; font-size:11px;")
+        f.addRow(pnotes)
+        row = {"id": t["id"], "box": g, "title": title, "rm": rm, "name": name, "plugin": plug, "host": host,
+               "port": port, "note": note, "pnotes": pnotes, "last_plugin": t["plugin"]}
+        plug.currentIndexChanged.connect(lambda _x, r=row: self._plugin_changed(r))
+        rm.clicked.connect(lambda _c=False, r=row: self._remove_target(r))
+        self._plugin_changed(row, first=True)
+        self.t_widgets.append(row)
+        self.t_box.insertWidget(self.t_box.count() - 1, g)
+        self._renumber()
+        return row
+
+    def _renumber(self):
+        for i, r in enumerate(self.t_widgets):
+            r["title"].setText(f"Profilo OSC {i + 1}")
+            r["rm"].setEnabled(len(self.t_widgets) > 1)
+
+    def _remove_target(self, row):
+        from PySide6.QtWidgets import QMessageBox
+        n = commands_using(self.mw.project.points, row["id"])
+        if n:
+            r = QMessageBox.question(self, "Elimina profilo",
+                                     f"Il profilo «{row['name'].text()}» è usato da {n} comandi dei pulsanti: "
+                                     "dopo l'eliminazione quei comandi non verranno più inviati (li vedrai segnati "
+                                     "con ⚠ e potrai assegnarli a un altro profilo). Eliminarlo?")
+            if r != QMessageBox.Yes:
+                return
+        self.t_widgets.remove(row)
+        row["box"].setParent(None)
+        row["box"].deleteLater()
+        self._renumber()
 
     def _plugin_changed(self, row, first=False):
         pid = row["plugin"].currentData()
@@ -350,16 +407,37 @@ class SettingsDialog(QDialog):
             old = plugins().get(row["last_plugin"]) or {}
             if row["port"].value() == int(old.get("port") or 0):
                 row["port"].setValue(int(p.get("port") or 8000))
-            if row["name"].text().strip() in ("", old.get("name", "")):
+            if row["name"].text().strip() in ("", old.get("name", "")) or \
+                    row["name"].text().strip().startswith("Profilo "):
                 row["name"].setText(p.get("name", "").split(" (")[0])
         row["last_plugin"] = pid
 
     def targets(self):
         out = []
-        for r in self.t_widgets[:N_TARGETS]:
-            out.append({"name": r["name"].text().strip(), "host": r["host"].text().strip(), "port": r["port"].value(),
-                        "note": r["note"].toPlainText().strip(), "plugin": r["plugin"].currentData()})
+        for r in self.t_widgets:
+            out.append({"id": r["id"], "name": r["name"].text().strip(), "host": r["host"].text().strip(),
+                        "port": r["port"].value(), "note": r["note"].toPlainText().strip(),
+                        "plugin": r["plugin"].currentData()})
         return clean_targets(out)
+
+    def _scan(self):
+        from .ui_netscan import NetScanDialog
+        NetScanDialog(self).exec()
+
+    def use_found(self, found, row=None):
+        """Configura un profilo con un dispositivo trovato in rete (row None = profilo nuovo)."""
+        if row is None:
+            row = self._add_target(new_target(self.targets(), found["plugin"], found["host"], found["port"],
+                                              found["name"]))
+        else:
+            row["plugin"].setCurrentIndex(max(0, row["plugin"].findData(found["plugin"])))
+            row["host"].setText(found["host"])
+            row["port"].setValue(int(found["port"]))
+            row["name"].setText(found["name"])
+        if not row["note"].toPlainText().strip():
+            row["note"].setPlainText(f"Trovato in rete: {found['how']}")
+        self.tabs.setCurrentIndex(1)
+        return row
 
     # ------------------------------------------------------------ riconoscimento
     def _build_rec(self):
