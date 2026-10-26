@@ -441,6 +441,53 @@ def navigazione_riattivazione_zone():
 
 
 @test
+def immagini_dei_pulsanti():
+    from PySide6.QtGui import QColor, QImage
+    from scriptfollower.main_window import MainWindow
+    from scriptfollower.ui_images import ImageViewer, abs_path, media_dir
+    from scriptfollower.ui_point import PointDialog
+    src = []
+    for i, col in enumerate(("red", "blue")):
+        im = QImage(320, 200, QImage.Format_RGB32)
+        im.fill(QColor(col))
+        path = os.path.join(TMP, f"foto{i}.png")
+        im.save(path)
+        src.append(path)
+    w = MainWindow()
+    w.open_pdf(PDF)
+    k = next(x.i for x in w.doc.words if x.text == "questo!")
+    p = new_point(k, "button")
+    p["label"] = "Luci"
+    dlg = PointDialog(p, w.project.targets, "", w, project=w.project)
+    dlg._import(src + [src[0]])                      # la stessa due volte: una sola
+    assert dlg.p["images"] == ["copione_immagini/foto0.png", "copione_immagini/foto1.png"], dlg.p["images"]
+    assert os.path.isfile(os.path.join(media_dir(w.project), "foto1.png"))
+    dlg._move_image(-1) if dlg.imgs.currentRow() == 1 else None
+    assert dlg.p["images"][0].endswith("foto1.png")
+    w.project.add_point(dlg.result_point())
+    dlg.reject()
+    w.set_mode(False)
+    w.refresh_points()
+    run(0.1)
+    assert len(w.panel.btn_imgs.paths) == 2 and w.panel.btn_imgs.isVisibleTo(w.panel)
+    v = ImageViewer(w.panel.btn_imgs.paths, 1, "Luci", w)
+    v.show()
+    run(0.1)
+    assert not v._pm.isNull() and v._pm.width() == 320
+    v.step(1)
+    assert v.i == 0
+    v.close()
+    # salvato e riaperto: i percorsi restano relativi al PDF
+    w.project.path = os.path.join(TMP, "immagini.sfollow")
+    w.save()
+    q = Project.load(w.project.path)
+    pt = next(x for x in q.points if x["label"] == "Luci")
+    assert os.path.isfile(abs_path(q, pt["images"][0]))
+    w.project.dirty = False
+    w.close()
+
+
+@test
 def osc_argomenti_e_plugin():
     assert parse_osc_args('1 2.5 ciao "due parole" "12" true') == [1, 2.5, "ciao", "due parole", "12", True]
     ps = plugins(reload=True)

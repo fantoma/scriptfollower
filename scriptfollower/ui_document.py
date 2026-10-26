@@ -75,14 +75,17 @@ class PointWidget(QFrame):
         if self.btn is not None:
             self._btn_text(False)
         else:
-            self.label.setText(p.get("text") or "(annotazione vuota)")
+            self.label.setText((p.get("text") or "(annotazione vuota)") + ("  🖼" if p.get("images") else ""))
         self.state = None
 
     def _btn_text(self, sent):
         p = self.point
         n = len(p.get("commands") or [])
-        self.btn.setText(("✔ " if sent else "▶ ") + (p.get("label") or "Pulsante") + ("" if n == 1 else f"  ×{n}"))
-        self.btn.setToolTip("\n".join(filter(None, [p.get("text"), f"{n} comandi OSC" if n != 1 else ""])))
+        ni = len(p.get("images") or [])
+        self.btn.setText(("✔ " if sent else "▶ ") + (p.get("label") or "Pulsante") + ("" if n == 1 else f"  ×{n}")
+                         + ("  🖼" if ni else ""))
+        self.btn.setToolTip("\n".join(filter(None, [p.get("text"), f"{n} comandi OSC" if n != 1 else "",
+                                                     f"{ni} immagini" if ni else ""])))
 
     def apply(self, state, enabled, blink_on, prep):
         key = (state, enabled, blink_on, prep)

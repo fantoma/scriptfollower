@@ -6,6 +6,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from .timing import fmt
+from .ui_images import ImageViewer, ThumbStrip
 from .ui_document import STYLE_BTN
 
 
@@ -46,6 +47,12 @@ class NextPanel(QWidget):
                                     "border-radius:4px;padding:6px 8px;font-size:15px;font-weight:bold;}")
         self.btn_note.setVisible(False)
         v.addWidget(self.btn_note)
+        # immagini del pulsante: miniature, un clic le apre in una finestra
+        self.btn_imgs = ThumbStrip(64)
+        self.btn_imgs.opened.connect(lambda i: self._open(self.btn_imgs, i, self._btn_title))
+        v.addWidget(self.btn_imgs)
+        self._btn_title = ""
+        self.resolve = lambda rel: rel           # percorso relativo -> assoluto (lo imposta la finestra)
         self.context = QLabel()
         self.context.setWordWrap(True)
         self.context.setTextFormat(Qt.RichText)
@@ -92,10 +99,13 @@ class NextPanel(QWidget):
         nt = QLabel("Prossima nota:")
         nt.setStyleSheet("font-weight:bold;color:#c8c8cc;")
         v.addWidget(nt)
+        self.note_imgs = ThumbStrip(52)
+        self.note_imgs.opened.connect(lambda i: self._open(self.note_imgs, i, "Nota"))
         self.note = QLabel("—")
         self.note.setWordWrap(True)
         self.note.setTextFormat(Qt.PlainText)
         v.addWidget(self.note)
+        v.addWidget(self.note_imgs)
         v.addStretch(1)
         self.heard_title = QLabel("Sentito:")
         self.heard_title.setStyleSheet("color:#8a8c94;font-size:11px;")
@@ -125,6 +135,8 @@ class NextPanel(QWidget):
         note = (point or {}).get("text") or ""
         self.btn_note.setText(note)
         self.btn_note.setVisible(bool(note))
+        self.btn_imgs.set_paths([self.resolve(r) for r in (point or {}).get("images") or []])
+        self._btn_title = (point or {}).get("label") or ""
         if point is None:
             self.context.setText("<span style='color:#6c6e76'>Nessun altro pulsante nel copione.</span>")
             self.btn.setText("—")
@@ -184,7 +196,12 @@ class NextPanel(QWidget):
             self.prev_btn.setStyleSheet(STYLE_BTN["future" if sent else "armed"])
             self.prev_note.setText("" if sent else "⚠ non ancora inviato")
 
+    def _open(self, strip, i, title):
+        if strip.paths:
+            ImageViewer(strip.paths, i, title, self.window()).show()
+
     def set_note(self, point):
+        self.note_imgs.set_paths([self.resolve(r) for r in (point or {}).get("images") or []])
         if point is None:
             self.note.setText("—")
             self.note.setStyleSheet("color:#6c6e76;")

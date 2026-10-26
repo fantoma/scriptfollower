@@ -1,8 +1,9 @@
 """Finestre di modifica dei punti: pulsante OSC (con più comandi) e annotazione."""
 import copy
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QGroupBox,
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
+                               QGroupBox, QMessageBox,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
                                QPushButton, QSpinBox, QVBoxLayout, QWidget)
 
@@ -193,9 +194,11 @@ class CommandEditor(QWidget):
 
 
 class PointDialog(QDialog):
-    def __init__(self, point, targets, context_text="", parent=None):
+    def __init__(self, point, targets, context_text="", parent=None, project=None):
         super().__init__(parent)
+        self.project = project
         self.p = copy.deepcopy(point)
+        self.p.setdefault("images", [])
         self.targets = clean_targets(targets)
         is_btn = self.p["kind"] == "button"
         self.setWindowTitle("Pulsante OSC" if is_btn else "Annotazione")
@@ -228,6 +231,7 @@ class PointDialog(QDialog):
             self.color.setCurrentIndex(max(0, self.color.findData(self.p.get("color"))))
             f.addRow("Colore", self.color)
         v.addLayout(f)
+        self._build_images(v)
         if is_btn:
             g = QGroupBox("Comandi OSC (inviati nell'ordine, tutti alla pressione)")
             gv = QVBoxLayout(g)
@@ -266,7 +270,106 @@ class PointDialog(QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
-        self.resize(640, 720 if is_btn else 300)
+        self.resize(660, 880 if is_btn else 470)
+
+    # ------------------------------------------------------------ immagini e foto
+    def _build_images(self, v):
+        g = QGroupBox("Immagini e foto (miniature sotto la nota; clic per aprirle in una finestra)")
+        h = QHBoxLayout(g)
+        self.imgs = QListWidget()
+        self.imgs.setViewMode(QListWidget.IconMode)
+        self.imgs.setIconSize(QSize(96, 72))
+        self.imgs.setFlow(QListWidget.LeftToRight)
+        self.imgs.setWrapping(False)
+        self.imgs.setResizeMode(QListWidget.Adjust)
+        self.imgs.setMovement(QListWidget.Static)
+        self.imgs.setSpacing(4)
+        self.imgs.setFixedHeight(118)
+        self.imgs.setAcceptDrops(True)
+        self.imgs.viewport().setAcceptDrops(True)
+        self.imgs.setDragDropMode(QListWidget.DropOnly)
+        self.imgs.itemDoubleClicked.connect(lambda it: self._open_image(self.imgs.row(it)))
+        self.imgs.dragEnterEvent = self._drag_enter
+        self.imgs.dragMoveEvent = self._drag_enter
+        self.imgs.dropEvent = self._drop
+        h.addWidget(self.imgs, 1)
+        col = QVBoxLayout()
+        for text, fn in (("＋ Aggiungi…", self._add_images), ("Apri", lambda: self._open_image(self.imgs.currentRow())),
+                         ("◀", lambda: self._move_image(-1)), ("▶", lambda: self._move_image(1)),
+                         ("Rimuovi", self._remove_image)):
+            b = QPushButton(text)
+            b.clicked.connect(fn)
+            col.addWidget(b)
+        col.addStretch(1)
+        h.addLayout(col)
+        v.addWidget(g)
+        self._fill_images()
+
+    def _abs(self, rel):
+        from .ui_images import abs_path
+        return abs_path(self.project, rel) if self.project is not None else rel
+
+    def _fill_images(self):
+        from PySide6.QtGui import QIcon
+        from .ui_images import thumbnail
+        self.imgs.clear()
+        for rel in self.p["images"]:
+            pm = thumbnail(self._abs(rel), 72)
+            it = QListWidgetItem(QIcon(pm), "" if not pm.isNull() else "⚠ " + rel.split("/")[-1])
+            it.setToolTip(rel + ("" if not pm.isNull() else "\n(immagine non trovata)"))
+            self.imgs.addItem(it)
+
+    def _import(self, paths):
+        from .ui_images import IMAGE_EXT, import_images
+        paths = [p for p in paths if p.lower().endswith(IMAGE_EXT)]
+        if not paths:
+            return
+        if self.project is None or not (self.project.pdf or self.project.path):
+            QMessageBox.warning(self, "Immagini", "Apri prima un copione: le immagini vengono copiate accanto al PDF.")
+            return
+        try:
+            rels = import_images(self.project, paths)
+        except OSError as e:
+            QMessageBox.warning(self, "Immagini", f"Copia non riuscita: {e}")
+            return
+        for r in rels:
+            if r not in self.p["images"]:
+                self.p["images"].append(r)
+        self._fill_images()
+        self.imgs.setCurrentRow(self.imgs.count() - 1)
+
+    def _add_images(self):
+        from .ui_images import IMAGE_FILTER
+        paths, _ = QFileDialog.getOpenFileNames(self, "Aggiungi immagini o foto", "", IMAGE_FILTER)
+        self._import(paths)
+
+    def _drag_enter(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def _drop(self, e):
+        self._import([u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()])
+        e.acceptProposedAction()
+
+    def _open_image(self, row):
+        from .ui_images import ImageViewer
+        if 0 <= row < len(self.p["images"]):
+            ImageViewer([self._abs(r) for r in self.p["images"]], row, self.windowTitle(), self).show()
+
+    def _move_image(self, d):
+        r = self.imgs.currentRow()
+        n = r + d
+        im = self.p["images"]
+        if 0 <= r < len(im) and 0 <= n < len(im):
+            im[r], im[n] = im[n], im[r]
+            self._fill_images()
+            self.imgs.setCurrentRow(n)
+
+    def _remove_image(self):
+        r = self.imgs.currentRow()
+        if 0 <= r < len(self.p["images"]):
+            del self.p["images"][r]           # il file resta nella cartella delle immagini
+            self._fill_images()
 
     # ------------------------------------------------------------ comandi
     def _cmds(self):

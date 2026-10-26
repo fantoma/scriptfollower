@@ -55,6 +55,14 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
     grafo con il pacchetto di compilazione di Alphacephei (per l'italiano non è pubblico, si chiede a loro),
     più Kaldi, SRILM, Phonetisaurus e un Linux con 32 GB di RAM. Non si fa dall'app. In alternativa c'è il
     modello italiano grande, che ha più parole ma non permette di limitare il vocabolario.
+- **Immagini e foto** nei pulsanti e nelle note: nella finestra del punto c'è **＋ Aggiungi…**, oppure le
+  trascini dentro. Si possono riordinare con ◀ ▶ e togliere con Rimuovi.
+  - Vengono copiate nella cartella `<nome del copione>_immagini` accanto al PDF: PDF, `.sfollow` e cartella
+    si spostano insieme.
+  - In scena compaiono come **miniature sotto la nota** del prossimo evento (e della prossima nota). Un clic
+    le apre in una **finestra a parte**: ◀ ▶ per scorrerle, F per lo schermo intero. Le foto sono ruotate
+    secondo i dati EXIF.
+  - Nella colonna dei punti, il segno 🖼 indica i pulsanti e le note che hanno immagini.
 - **Zone azzurre e viola trascinabili**: in preparazione, porta il mouse sul bordo sinistro della prima parola o
   sul bordo destro dell'ultima di una zona. Il cursore diventa ↔ e trascinando la zona si allarga o si
   restringe, con l'anteprima delle parole che entrano o escono.

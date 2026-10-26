@@ -244,6 +244,8 @@ class MainWindow(QMainWindow):
         c.zoneResized.connect(self._zone_resized)
         self.split.addWidget(self.view)
         self.panel = NextPanel()
+        from .ui_images import abs_path
+        self.panel.resolve = lambda rel: abs_path(self.project, rel)
         self.panel.pressed.connect(self.press_point)
         self.split.addWidget(self.panel)
         self.split.setStretchFactor(0, 1)
@@ -967,7 +969,7 @@ class MainWindow(QMainWindow):
         if kind == "button":
             p["label"] = f"Pulsante {sum(1 for x in self.project.points if x['kind'] == 'button') + 1}"
         ctx = " ".join(self.doc.words[i].text for i in self.doc.sentences_before(word, n=1, max_words=12))
-        dlg = PointDialog(p, self.project.targets, ctx, self)
+        dlg = PointDialog(p, self.project.targets, ctx, self, project=self.project)
         if dlg.exec() == QDialog.Accepted:
             self.project.add_point(dlg.result_point())
             self._mark_dirty()
@@ -978,7 +980,7 @@ class MainWindow(QMainWindow):
         if p is None:
             return
         ctx = " ".join(self.doc.words[i].text for i in self.doc.sentences_before(p["word"], n=1, max_words=12))
-        dlg = PointDialog(p, self.project.targets, ctx, self)
+        dlg = PointDialog(p, self.project.targets, ctx, self, project=self.project)
         if dlg.exec() == QDialog.Accepted:
             p.clear()
             p.update(dlg.result_point())

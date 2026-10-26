@@ -18,7 +18,7 @@ NOTE_COLORS = ["#e0b040", "#5aa0e0", "#e06a5a", "#6cc070", "#b080e0"]
 def new_point(word, kind):
     return {"id": uuid.uuid4().hex[:8], "word": int(word), "kind": kind,
             "label": "" if kind == "button" else "", "text": "", "color": NOTE_COLORS[0] if kind == "note" else "",
-            "commands": []}
+            "commands": [], "images": []}
 
 
 class Project:
@@ -98,7 +98,7 @@ class Project:
         for pt in d.get("points") or []:
             if isinstance(pt, dict) and "word" in pt and pt.get("kind") in ("button", "note"):
                 q = new_point(pt["word"], pt["kind"])
-                q.update({k: pt[k] for k in ("id", "label", "text", "color", "commands") if k in pt})
+                q.update({k: pt[k] for k in ("id", "label", "text", "color", "commands", "images") if k in pt})
                 p.points.append(q)
         p.overrides = {int(k): bool(v) for k, v in (d.get("overrides") or {}).items()}
         p.timing = clean_timing(d.get("timing"))
