@@ -1,0 +1,613 @@
+From 25974a99b635c3ec906c88502a171906442c34a3 Mon Sep 17 00:00:00 2001
+From: fantoma <dfantoma@gmail.com>
+Date: Mon, 26 Oct 2026 19:27:49 +0100
+Subject: [PATCH] Versione 0.3.1: immagini e foto nei pulsanti e nelle note
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- nella finestra del punto: aggiungi (anche trascinando), riordina, togli; copiate in <copione>_immagini
+- miniature sotto la nota in «Prossimo evento» e sotto la prossima nota; clic = finestra con ◀ ▶ e schermo intero
+- segno 🖼 nella colonna dei punti
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AiVCnbVdJsKeZTJLEfQrb9
+---
+ README.md                     |   8 ++
+ scriptfollower/__init__.py    |   2 +-
+ scriptfollower/main_window.py |   6 +-
+ scriptfollower/project.py     |   4 +-
+ scriptfollower/ui_document.py |   9 +-
+ scriptfollower/ui_images.py   | 208 ++++++++++++++++++++++++++++++++++
+ scriptfollower/ui_panel.py    |  17 +++
+ scriptfollower/ui_point.py    | 111 +++++++++++++++++-
+ tests/test_smoke.py           |  47 ++++++++
+ 9 files changed, 400 insertions(+), 12 deletions(-)
+ create mode 100644 scriptfollower/ui_images.py
+
+diff --git a/README.md b/README.md
+index c6abfbe..76ac990 100644
+--- a/README.md
++++ b/README.md
+@@ -55,6 +55,14 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
+     grafo con il pacchetto di compilazione di Alphacephei (per l'italiano non è pubblico, si chiede a loro),
+     più Kaldi, SRILM, Phonetisaurus e un Linux con 32 GB di RAM. Non si fa dall'app. In alternativa c'è il
+     modello italiano grande, che ha più parole ma non permette di limitare il vocabolario.
++- **Immagini e foto** nei pulsanti e nelle note: nella finestra del punto c'è **＋ Aggiungi…**, oppure le
++  trascini dentro. Si possono riordinare con ◀ ▶ e togliere con Rimuovi.
++  - Vengono copiate nella cartella `<nome del copione>_immagini` accanto al PDF: PDF, `.sfollow` e cartella
++    si spostano insieme.
++  - In scena compaiono come **miniature sotto la nota** del prossimo evento (e della prossima nota). Un clic
++    le apre in una **finestra a parte**: ◀ ▶ per scorrerle, F per lo schermo intero. Le foto sono ruotate
++    secondo i dati EXIF.
++  - Nella colonna dei punti, il segno 🖼 indica i pulsanti e le note che hanno immagini.
+ - **Zone azzurre e viola trascinabili**: in preparazione, porta il mouse sul bordo sinistro della prima parola o
+   sul bordo destro dell'ultima di una zona. Il cursore diventa ↔ e trascinando la zona si allarga o si
+   restringe, con l'anteprima delle parole che entrano o escono.
+diff --git a/scriptfollower/__init__.py b/scriptfollower/__init__.py
+index 8116280..ef3fa3e 100644
+--- a/scriptfollower/__init__.py
++++ b/scriptfollower/__init__.py
+@@ -1,2 +1,2 @@
+ """Script Follower – segue il parlato degli attori e fa scorrere il copione teatrale (PDF), con punti OSC."""
+-__version__ = "0.3.0"
++__version__ = "0.3.1"
+diff --git a/scriptfollower/main_window.py b/scriptfollower/main_window.py
+index 01aa4af..a09607e 100644
+--- a/scriptfollower/main_window.py
++++ b/scriptfollower/main_window.py
+@@ -244,6 +244,8 @@ class MainWindow(QMainWindow):
+         c.zoneResized.connect(self._zone_resized)
+         self.split.addWidget(self.view)
+         self.panel = NextPanel()
++        from .ui_images import abs_path
++        self.panel.resolve = lambda rel: abs_path(self.project, rel)
+         self.panel.pressed.connect(self.press_point)
+         self.split.addWidget(self.panel)
+         self.split.setStretchFactor(0, 1)
+@@ -967,7 +969,7 @@ class MainWindow(QMainWindow):
+         if kind == "button":
+             p["label"] = f"Pulsante {sum(1 for x in self.project.points if x['kind'] == 'button') + 1}"
+         ctx = " ".join(self.doc.words[i].text for i in self.doc.sentences_before(word, n=1, max_words=12))
+-        dlg = PointDialog(p, self.project.targets, ctx, self)
++        dlg = PointDialog(p, self.project.targets, ctx, self, project=self.project)
+         if dlg.exec() == QDialog.Accepted:
+             self.project.add_point(dlg.result_point())
+             self._mark_dirty()
+@@ -978,7 +980,7 @@ class MainWindow(QMainWindow):
+         if p is None:
+             return
+         ctx = " ".join(self.doc.words[i].text for i in self.doc.sentences_before(p["word"], n=1, max_words=12))
+-        dlg = PointDialog(p, self.project.targets, ctx, self)
++        dlg = PointDialog(p, self.project.targets, ctx, self, project=self.project)
+         if dlg.exec() == QDialog.Accepted:
+             p.clear()
+             p.update(dlg.result_point())
+diff --git a/scriptfollower/project.py b/scriptfollower/project.py
+index 899a38f..4cb6eae 100644
+--- a/scriptfollower/project.py
++++ b/scriptfollower/project.py
+@@ -18,7 +18,7 @@ NOTE_COLORS = ["#e0b040", "#5aa0e0", "#e06a5a", "#6cc070", "#b080e0"]
+ def new_point(word, kind):
+     return {"id": uuid.uuid4().hex[:8], "word": int(word), "kind": kind,
+             "label": "" if kind == "button" else "", "text": "", "color": NOTE_COLORS[0] if kind == "note" else "",
+-            "commands": []}
++            "commands": [], "images": []}
+ 
+ 
+ class Project:
+@@ -98,7 +98,7 @@ class Project:
+         for pt in d.get("points") or []:
+             if isinstance(pt, dict) and "word" in pt and pt.get("kind") in ("button", "note"):
+                 q = new_point(pt["word"], pt["kind"])
+-                q.update({k: pt[k] for k in ("id", "label", "text", "color", "commands") if k in pt})
++                q.update({k: pt[k] for k in ("id", "label", "text", "color", "commands", "images") if k in pt})
+                 p.points.append(q)
+         p.overrides = {int(k): bool(v) for k, v in (d.get("overrides") or {}).items()}
+         p.timing = clean_timing(d.get("timing"))
+diff --git a/scriptfollower/ui_document.py b/scriptfollower/ui_document.py
+index b16521a..d8bb99c 100644
+--- a/scriptfollower/ui_document.py
++++ b/scriptfollower/ui_document.py
+@@ -75,14 +75,17 @@ class PointWidget(QFrame):
+         if self.btn is not None:
+             self._btn_text(False)
+         else:
+-            self.label.setText(p.get("text") or "(annotazione vuota)")
++            self.label.setText((p.get("text") or "(annotazione vuota)") + ("  🖼" if p.get("images") else ""))
+         self.state = None
+ 
+     def _btn_text(self, sent):
+         p = self.point
+         n = len(p.get("commands") or [])
+-        self.btn.setText(("✔ " if sent else "▶ ") + (p.get("label") or "Pulsante") + ("" if n == 1 else f"  ×{n}"))
+-        self.btn.setToolTip("\n".join(filter(None, [p.get("text"), f"{n} comandi OSC" if n != 1 else ""])))
++        ni = len(p.get("images") or [])
++        self.btn.setText(("✔ " if sent else "▶ ") + (p.get("label") or "Pulsante") + ("" if n == 1 else f"  ×{n}")
++                         + ("  🖼" if ni else ""))
++        self.btn.setToolTip("\n".join(filter(None, [p.get("text"), f"{n} comandi OSC" if n != 1 else "",
++                                                     f"{ni} immagini" if ni else ""])))
+ 
+     def apply(self, state, enabled, blink_on, prep):
+         key = (state, enabled, blink_on, prep)
+diff --git a/scriptfollower/ui_images.py b/scriptfollower/ui_images.py
+new file mode 100644
+index 0000000..6285c14
+--- /dev/null
++++ b/scriptfollower/ui_images.py
+@@ -0,0 +1,208 @@
++"""Immagini e foto allegate ai pulsanti e alle note: miniature sotto le note e finestra di visualizzazione.
++
++Le immagini vengono copiate nella cartella «<nome del copione>_immagini» accanto al PDF, così il progetto si
++sposta insieme (PDF + .sfollow + cartella) su un altro computer o una chiavetta. Nel progetto si salva il
++percorso relativo alla cartella del PDF.
++"""
++import os
++import shutil
++
++from PySide6.QtCore import QSize, Qt, Signal
++from PySide6.QtGui import QImageReader, QKeySequence, QPixmap, QShortcut
++from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
++
++IMAGE_FILTER = "Immagini (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tif *.tiff);;Tutti i file (*)"
++IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff")
++_thumbs = {}
++
++
++def base_dir(project):
++    return os.path.dirname(project.pdf) if project.pdf else (os.path.dirname(project.path) if project.path else "")
++
++
++def media_dir(project):
++    stem = os.path.splitext(os.path.basename(project.pdf or project.path or "copione"))[0]
++    return os.path.join(base_dir(project), f"{stem}_immagini")
++
++
++def abs_path(project, rel):
++    if os.path.isabs(rel):
++        return rel
++    return os.path.normpath(os.path.join(base_dir(project), rel.replace("/", os.sep)))
++
++
++def import_images(project, paths):
++    """Copia le immagini nella cartella del progetto. Ritorna i percorsi relativi (con «/»)."""
++    dest = media_dir(project)
++    os.makedirs(dest, exist_ok=True)
++    out = []
++    for src in paths:
++        if not os.path.isfile(src):
++            continue
++        name = os.path.basename(src)
++        target = os.path.join(dest, name)
++        if os.path.abspath(src) != os.path.abspath(target):
++            stem, ext = os.path.splitext(name)
++            k = 2
++            while os.path.exists(target):
++                if os.path.getsize(target) == os.path.getsize(src):      # stessa immagine già copiata
++                    break
++                target = os.path.join(dest, f"{stem}-{k}{ext}")
++                k += 1
++            if not os.path.exists(target):
++                shutil.copy2(src, target)
++        out.append(os.path.relpath(target, base_dir(project)).replace(os.sep, "/"))
++    return out
++
++
++def load_pixmap(path, size=None):
++    """Immagine (orientata secondo l'EXIF delle foto), ridotta a size (QSize) se indicato."""
++    r = QImageReader(path)
++    r.setAutoTransform(True)
++    if size is not None:
++        s = r.size()
++        if s.isValid() and (s.width() > size.width() or s.height() > size.height()):
++            r.setScaledSize(s.scaled(size, Qt.KeepAspectRatio))
++    img = r.read()
++    return QPixmap.fromImage(img) if not img.isNull() else QPixmap()
++
++
++def thumbnail(path, h=72):
++    try:
++        key = (path, h, os.path.getmtime(path))
++    except OSError:
++        return QPixmap()
++    pm = _thumbs.get(key)
++    if pm is None:
++        pm = _thumbs[key] = load_pixmap(path, QSize(h * 3, h))
++        if len(_thumbs) > 300:
++            _thumbs.clear()
++    return pm
++
++
++class _Thumb(QLabel):
++    clicked = Signal(int)
++
++    def __init__(self, i, pm, tip, parent=None):
++        super().__init__(parent)
++        self.i = i
++        self.setPixmap(pm)
++        self.setToolTip(tip)
++        self.setCursor(Qt.PointingHandCursor)
++        self.setStyleSheet("QLabel{border:1px solid #4a4c54;border-radius:3px;padding:1px;background:#1c1d22;}"
++                           "QLabel:hover{border-color:#e0b040;}")
++
++    def mousePressEvent(self, e):
++        if e.button() == Qt.LeftButton:
++            self.clicked.emit(self.i)
++
++
++class ThumbStrip(QWidget):
++    """Fila di miniature: un clic apre l'immagine in una finestra."""
++    opened = Signal(int)
++
++    def __init__(self, h=64, parent=None):
++        super().__init__(parent)
++        self.h = h
++        self.lay = QHBoxLayout(self)
++        self.lay.setContentsMargins(0, 0, 0, 0)
++        self.lay.setSpacing(6)
++        self.paths = []
++        self.setVisible(False)
++
++    def set_paths(self, paths):
++        paths = list(paths or [])
++        if paths == self.paths:
++            return
++        self.paths = paths
++        while self.lay.count():
++            it = self.lay.takeAt(0)
++            if it.widget():
++                it.widget().deleteLater()
++        for i, p in enumerate(paths):
++            pm = thumbnail(p, self.h)
++            if pm.isNull():
++                t = QLabel("⚠")
++                t.setToolTip(f"Immagine non trovata: {p}")
++                t.setStyleSheet("color:#e0a030;")
++                self.lay.addWidget(t)
++                continue
++            t = _Thumb(i, pm, os.path.basename(p) + " — clic per aprirla")
++            t.clicked.connect(self.opened)
++            self.lay.addWidget(t)
++        self.lay.addStretch(1)
++        self.setVisible(bool(paths))
++
++
++class ImageViewer(QDialog):
++    """Finestra con l'immagine adattata alla finestra; ◀ ▶ tra le immagini dello stesso punto, F schermo intero."""
++
++    def __init__(self, paths, index=0, title="", parent=None):
++        super().__init__(parent)
++        self.setModal(False)
++        self.setAttribute(Qt.WA_DeleteOnClose)
++        self.paths = list(paths)
++        self.i = max(0, min(index, len(self.paths) - 1))
++        self.title = title
++        self.setStyleSheet("QDialog{background:#111214;}")
++        v = QVBoxLayout(self)
++        v.setContentsMargins(6, 6, 6, 6)
++        self.view = QLabel()
++        self.view.setAlignment(Qt.AlignCenter)
++        self.view.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
++        self.view.setMinimumSize(200, 150)
++        v.addWidget(self.view, 1)
++        bar = QHBoxLayout()
++        self.prev = QPushButton("◀")
++        self.next = QPushButton("▶")
++        self.full = QPushButton("⛶ Schermo intero")
++        self.cap = QLabel()
++        self.cap.setStyleSheet("color:#aaa;")
++        for b in (self.prev, self.next, self.full):
++            b.setFocusPolicy(Qt.NoFocus)
++        self.prev.clicked.connect(lambda: self.step(-1))
++        self.next.clicked.connect(lambda: self.step(1))
++        self.full.clicked.connect(self.toggle_full)
++        bar.addWidget(self.prev)
++        bar.addWidget(self.next)
++        bar.addWidget(self.cap, 1)
++        bar.addWidget(self.full)
++        v.addLayout(bar)
++        for key, fn in (("Left", lambda: self.step(-1)), ("Right", lambda: self.step(1)), ("F", self.toggle_full)):
++            QShortcut(QKeySequence(key), self, activated=fn)
++        self._pm = QPixmap()
++        self.resize(900, 650)
++        self._load()
++
++    def _load(self):
++        p = self.paths[self.i] if self.paths else ""
++        self._pm = load_pixmap(p) if p else QPixmap()
++        n = len(self.paths)
++        self.prev.setVisible(n > 1)
++        self.next.setVisible(n > 1)
++        name = os.path.basename(p)
++        self.cap.setText(f"{name}" + (f"   ({self.i + 1}/{n})" if n > 1 else "")
++                         + ("" if not self._pm.isNull() else "   — immagine non trovata"))
++        self.setWindowTitle(f"{self.title} — {name}" if self.title else name)
++        self._fit()
++
++    def _fit(self):
++        if self._pm.isNull():
++            self.view.setText("Immagine non trovata")
++            return
++        self.view.setPixmap(self._pm.scaled(self.view.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
++
++    def resizeEvent(self, e):
++        super().resizeEvent(e)
++        self._fit()
++
++    def step(self, d):
++        if self.paths:
++            self.i = (self.i + d) % len(self.paths)
++            self._load()
++
++    def toggle_full(self):
++        if self.isFullScreen():
++            self.showNormal()
++        else:
++            self.showFullScreen()
+diff --git a/scriptfollower/ui_panel.py b/scriptfollower/ui_panel.py
+index eccef04..d7660a7 100644
+--- a/scriptfollower/ui_panel.py
++++ b/scriptfollower/ui_panel.py
+@@ -6,6 +6,7 @@ from PySide6.QtGui import QFont
+ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+ 
+ from .timing import fmt
++from .ui_images import ImageViewer, ThumbStrip
+ from .ui_document import STYLE_BTN
+ 
+ 
+@@ -46,6 +47,12 @@ class NextPanel(QWidget):
+                                     "border-radius:4px;padding:6px 8px;font-size:15px;font-weight:bold;}")
+         self.btn_note.setVisible(False)
+         v.addWidget(self.btn_note)
++        # immagini del pulsante: miniature, un clic le apre in una finestra
++        self.btn_imgs = ThumbStrip(64)
++        self.btn_imgs.opened.connect(lambda i: self._open(self.btn_imgs, i, self._btn_title))
++        v.addWidget(self.btn_imgs)
++        self._btn_title = ""
++        self.resolve = lambda rel: rel           # percorso relativo -> assoluto (lo imposta la finestra)
+         self.context = QLabel()
+         self.context.setWordWrap(True)
+         self.context.setTextFormat(Qt.RichText)
+@@ -92,10 +99,13 @@ class NextPanel(QWidget):
+         nt = QLabel("Prossima nota:")
+         nt.setStyleSheet("font-weight:bold;color:#c8c8cc;")
+         v.addWidget(nt)
++        self.note_imgs = ThumbStrip(52)
++        self.note_imgs.opened.connect(lambda i: self._open(self.note_imgs, i, "Nota"))
+         self.note = QLabel("—")
+         self.note.setWordWrap(True)
+         self.note.setTextFormat(Qt.PlainText)
+         v.addWidget(self.note)
++        v.addWidget(self.note_imgs)
+         v.addStretch(1)
+         self.heard_title = QLabel("Sentito:")
+         self.heard_title.setStyleSheet("color:#8a8c94;font-size:11px;")
+@@ -125,6 +135,8 @@ class NextPanel(QWidget):
+         note = (point or {}).get("text") or ""
+         self.btn_note.setText(note)
+         self.btn_note.setVisible(bool(note))
++        self.btn_imgs.set_paths([self.resolve(r) for r in (point or {}).get("images") or []])
++        self._btn_title = (point or {}).get("label") or ""
+         if point is None:
+             self.context.setText("<span style='color:#6c6e76'>Nessun altro pulsante nel copione.</span>")
+             self.btn.setText("—")
+@@ -184,7 +196,12 @@ class NextPanel(QWidget):
+             self.prev_btn.setStyleSheet(STYLE_BTN["future" if sent else "armed"])
+             self.prev_note.setText("" if sent else "⚠ non ancora inviato")
+ 
++    def _open(self, strip, i, title):
++        if strip.paths:
++            ImageViewer(strip.paths, i, title, self.window()).show()
++
+     def set_note(self, point):
++        self.note_imgs.set_paths([self.resolve(r) for r in (point or {}).get("images") or []])
+         if point is None:
+             self.note.setText("—")
+             self.note.setStyleSheet("color:#6c6e76;")
+diff --git a/scriptfollower/ui_point.py b/scriptfollower/ui_point.py
+index 3a659b5..4444442 100644
+--- a/scriptfollower/ui_point.py
++++ b/scriptfollower/ui_point.py
+@@ -1,8 +1,9 @@
+ """Finestre di modifica dei punti: pulsante OSC (con più comandi) e annotazione."""
+ import copy
+ 
+-from PySide6.QtCore import Qt
+-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QGroupBox,
++from PySide6.QtCore import QSize, Qt
++from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
++                               QGroupBox, QMessageBox,
+                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
+                                QPushButton, QSpinBox, QVBoxLayout, QWidget)
+ 
+@@ -193,9 +194,11 @@ class CommandEditor(QWidget):
+ 
+ 
+ class PointDialog(QDialog):
+-    def __init__(self, point, targets, context_text="", parent=None):
++    def __init__(self, point, targets, context_text="", parent=None, project=None):
+         super().__init__(parent)
++        self.project = project
+         self.p = copy.deepcopy(point)
++        self.p.setdefault("images", [])
+         self.targets = clean_targets(targets)
+         is_btn = self.p["kind"] == "button"
+         self.setWindowTitle("Pulsante OSC" if is_btn else "Annotazione")
+@@ -228,6 +231,7 @@ class PointDialog(QDialog):
+             self.color.setCurrentIndex(max(0, self.color.findData(self.p.get("color"))))
+             f.addRow("Colore", self.color)
+         v.addLayout(f)
++        self._build_images(v)
+         if is_btn:
+             g = QGroupBox("Comandi OSC (inviati nell'ordine, tutti alla pressione)")
+             gv = QVBoxLayout(g)
+@@ -266,7 +270,106 @@ class PointDialog(QDialog):
+         bb.accepted.connect(self.accept)
+         bb.rejected.connect(self.reject)
+         v.addWidget(bb)
+-        self.resize(640, 720 if is_btn else 300)
++        self.resize(660, 880 if is_btn else 470)
++
++    # ------------------------------------------------------------ immagini e foto
++    def _build_images(self, v):
++        g = QGroupBox("Immagini e foto (miniature sotto la nota; clic per aprirle in una finestra)")
++        h = QHBoxLayout(g)
++        self.imgs = QListWidget()
++        self.imgs.setViewMode(QListWidget.IconMode)
++        self.imgs.setIconSize(QSize(96, 72))
++        self.imgs.setFlow(QListWidget.LeftToRight)
++        self.imgs.setWrapping(False)
++        self.imgs.setResizeMode(QListWidget.Adjust)
++        self.imgs.setMovement(QListWidget.Static)
++        self.imgs.setSpacing(4)
++        self.imgs.setFixedHeight(118)
++        self.imgs.setAcceptDrops(True)
++        self.imgs.viewport().setAcceptDrops(True)
++        self.imgs.setDragDropMode(QListWidget.DropOnly)
++        self.imgs.itemDoubleClicked.connect(lambda it: self._open_image(self.imgs.row(it)))
++        self.imgs.dragEnterEvent = self._drag_enter
++        self.imgs.dragMoveEvent = self._drag_enter
++        self.imgs.dropEvent = self._drop
++        h.addWidget(self.imgs, 1)
++        col = QVBoxLayout()
++        for text, fn in (("＋ Aggiungi…", self._add_images), ("Apri", lambda: self._open_image(self.imgs.currentRow())),
++                         ("◀", lambda: self._move_image(-1)), ("▶", lambda: self._move_image(1)),
++                         ("Rimuovi", self._remove_image)):
++            b = QPushButton(text)
++            b.clicked.connect(fn)
++            col.addWidget(b)
++        col.addStretch(1)
++        h.addLayout(col)
++        v.addWidget(g)
++        self._fill_images()
++
++    def _abs(self, rel):
++        from .ui_images import abs_path
++        return abs_path(self.project, rel) if self.project is not None else rel
++
++    def _fill_images(self):
++        from PySide6.QtGui import QIcon
++        from .ui_images import thumbnail
++        self.imgs.clear()
++        for rel in self.p["images"]:
++            pm = thumbnail(self._abs(rel), 72)
++            it = QListWidgetItem(QIcon(pm), "" if not pm.isNull() else "⚠ " + rel.split("/")[-1])
++            it.setToolTip(rel + ("" if not pm.isNull() else "\n(immagine non trovata)"))
++            self.imgs.addItem(it)
++
++    def _import(self, paths):
++        from .ui_images import IMAGE_EXT, import_images
++        paths = [p for p in paths if p.lower().endswith(IMAGE_EXT)]
++        if not paths:
++            return
++        if self.project is None or not (self.project.pdf or self.project.path):
++            QMessageBox.warning(self, "Immagini", "Apri prima un copione: le immagini vengono copiate accanto al PDF.")
++            return
++        try:
++            rels = import_images(self.project, paths)
++        except OSError as e:
++            QMessageBox.warning(self, "Immagini", f"Copia non riuscita: {e}")
++            return
++        for r in rels:
++            if r not in self.p["images"]:
++                self.p["images"].append(r)
++        self._fill_images()
++        self.imgs.setCurrentRow(self.imgs.count() - 1)
++
++    def _add_images(self):
++        from .ui_images import IMAGE_FILTER
++        paths, _ = QFileDialog.getOpenFileNames(self, "Aggiungi immagini o foto", "", IMAGE_FILTER)
++        self._import(paths)
++
++    def _drag_enter(self, e):
++        if e.mimeData().hasUrls():
++            e.acceptProposedAction()
++
++    def _drop(self, e):
++        self._import([u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()])
++        e.acceptProposedAction()
++
++    def _open_image(self, row):
++        from .ui_images import ImageViewer
++        if 0 <= row < len(self.p["images"]):
++            ImageViewer([self._abs(r) for r in self.p["images"]], row, self.windowTitle(), self).show()
++
++    def _move_image(self, d):
++        r = self.imgs.currentRow()
++        n = r + d
++        im = self.p["images"]
++        if 0 <= r < len(im) and 0 <= n < len(im):
++            im[r], im[n] = im[n], im[r]
++            self._fill_images()
++            self.imgs.setCurrentRow(n)
++
++    def _remove_image(self):
++        r = self.imgs.currentRow()
++        if 0 <= r < len(self.p["images"]):
++            del self.p["images"][r]           # il file resta nella cartella delle immagini
++            self._fill_images()
+ 
+     # ------------------------------------------------------------ comandi
+     def _cmds(self):
+diff --git a/tests/test_smoke.py b/tests/test_smoke.py
+index c1ad123..c160d74 100644
+--- a/tests/test_smoke.py
++++ b/tests/test_smoke.py
+@@ -440,6 +440,53 @@ def navigazione_riattivazione_zone():
+     w.close()
+ 
+ 
++@test
++def immagini_dei_pulsanti():
++    from PySide6.QtGui import QColor, QImage
++    from scriptfollower.main_window import MainWindow
++    from scriptfollower.ui_images import ImageViewer, abs_path, media_dir
++    from scriptfollower.ui_point import PointDialog
++    src = []
++    for i, col in enumerate(("red", "blue")):
++        im = QImage(320, 200, QImage.Format_RGB32)
++        im.fill(QColor(col))
++        path = os.path.join(TMP, f"foto{i}.png")
++        im.save(path)
++        src.append(path)
++    w = MainWindow()
++    w.open_pdf(PDF)
++    k = next(x.i for x in w.doc.words if x.text == "questo!")
++    p = new_point(k, "button")
++    p["label"] = "Luci"
++    dlg = PointDialog(p, w.project.targets, "", w, project=w.project)
++    dlg._import(src + [src[0]])                      # la stessa due volte: una sola
++    assert dlg.p["images"] == ["copione_immagini/foto0.png", "copione_immagini/foto1.png"], dlg.p["images"]
++    assert os.path.isfile(os.path.join(media_dir(w.project), "foto1.png"))
++    dlg._move_image(-1) if dlg.imgs.currentRow() == 1 else None
++    assert dlg.p["images"][0].endswith("foto1.png")
++    w.project.add_point(dlg.result_point())
++    dlg.reject()
++    w.set_mode(False)
++    w.refresh_points()
++    run(0.1)
++    assert len(w.panel.btn_imgs.paths) == 2 and w.panel.btn_imgs.isVisibleTo(w.panel)
++    v = ImageViewer(w.panel.btn_imgs.paths, 1, "Luci", w)
++    v.show()
++    run(0.1)
++    assert not v._pm.isNull() and v._pm.width() == 320
++    v.step(1)
++    assert v.i == 0
++    v.close()
++    # salvato e riaperto: i percorsi restano relativi al PDF
++    w.project.path = os.path.join(TMP, "immagini.sfollow")
++    w.save()
++    q = Project.load(w.project.path)
++    pt = next(x for x in q.points if x["label"] == "Luci")
++    assert os.path.isfile(abs_path(q, pt["images"][0]))
++    w.project.dirty = False
++    w.close()
++
++
+ @test
+ def osc_argomenti_e_plugin():
+     assert parse_osc_args('1 2.5 ciao "due parole" "12" true') == [1, 2.5, "ciao", "due parole", "12", True]
+-- 
+2.43.0
+
