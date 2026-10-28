@@ -38,6 +38,10 @@ binaries = [(p, "vosk") for p in glob.glob(os.path.join(_VDIR, "*")) if p.endswi
 datas += [(src, dst) for src, dst in collect_data_files("vosk") if not src.endswith(_LIBS)]
 binaries += [b for b in collect_dynamic_libs("vosk") if b[0] not in {x[0] for x in binaries}]
 
+# ---- Whisper (sloveno): CTranslate2 ha le sue librerie native (libctranslate2, OpenMP…) nel pacchetto
+binaries += collect_dynamic_libs("ctranslate2")
+datas += collect_data_files("ctranslate2")
+
 # ---- modello vocale incluso (facoltativo)
 model = os.environ.get("SCRIPTFOLLOWER_MODEL_DIR")
 if model and os.path.isdir(model):
@@ -46,7 +50,7 @@ if model and os.path.isdir(model):
         if os.path.isfile(path):
             datas.append((path, os.path.join("models", name, os.path.dirname(os.path.relpath(path, model)))))
 
-hidden = set(collect_submodules("scriptfollower")) | set(collect_submodules("pymupdf")) | {"vosk", "_cffi_backend"}
+hidden = set(collect_submodules("scriptfollower")) | set(collect_submodules("pymupdf")) | {"vosk", "_cffi_backend", "ctranslate2", "tokenizers"}
 
 a = Analysis(
     [os.path.join(SPECPATH, "launch.py")],

@@ -91,6 +91,26 @@ def self_test(report=None):
         return "libvosk caricata"
     step("Vosk", vosk)
 
+    def whisper():
+        import ctranslate2
+        import tokenizers
+        from scriptfollower.whisper_engine import log_mel
+        m = log_mel([0.0] * 16000)
+        if m.shape != (80, 3000):
+            raise RuntimeError(f"log-mel {m.shape}")
+        return f"CTranslate2 {ctranslate2.__version__}, tokenizers {tokenizers.__version__}"
+    step("Whisper (sloveno)", whisper)
+
+    def languages():
+        from scriptfollower.i18n import set_language, _
+        for code in ("en", "sl"):
+            set_language(code)
+            if _("Impostazioni") == "Impostazioni":
+                raise RuntimeError(f"catalogo {code} non caricato")
+        set_language("it")
+        return "it, en, sl"
+    step("lingue dell'interfaccia", languages)
+
     def model():
         from scriptfollower.recognizer import find_model, model_dirs
         m = find_model()

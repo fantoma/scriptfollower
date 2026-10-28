@@ -7,8 +7,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox, QHB
                                QLineEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
 
 from .align import normalize
-from .recognizer import find_model
+from .languages import LANGS, find_model
 from .vocab import default_alias, suggest
+from .i18n import _
 
 C_WORD, C_COUNT, C_SAY, C_STATE = range(4)
 
@@ -22,33 +23,26 @@ class VocabDialog(QDialog):
         super().__init__(mw)
         self.mw = mw
         self.doc = mw.doc
-        self.setWindowTitle("Vocabolario del copione")
+        self.setWindowTitle(_('Vocabolario del copione'))
         self.known = None                          # funzione parola -> bool (dopo il controllo col modello)
         self.counts = self.doc.word_counts()
         v = QVBoxLayout(self)
         intro = QLabel(
-            "Il modello vocale riconosce solo le parole del suo vocabolario: una parola del copione che non conosce "
-            "(nomi propri, neologismi, numeri in cifre…) non verrà mai «sentita». Aggiungere parole nuove al modello "
-            "italiano non si può fare da qui: richiede di ricompilarne il grafo, con strumenti che Alphacephei "
-            "fornisce solo su richiesta. Si può però dare a ogni parola una <b>pronuncia</b> fatta di parole che il "
-            "modello conosce (es. «Gesualdi» → «gesù aldi»): verrà riconosciuta e agganciata alla parola del "
-            "copione. Le parole sconosciute senza pronuncia vengono saltate dall'inseguimento senza penalità. "
-            "I numeri in cifre si leggono già in lettere (118 → centodiciotto).")
+            _("Il modello vocale riconosce solo le parole del suo vocabolario: una parola del copione che non conosce (nomi propri, neologismi, numeri in cifre…) non verrà mai «sentita». Aggiungere parole nuove al modello italiano non si può fare da qui: richiede di ricompilarne il grafo, con strumenti che Alphacephei fornisce solo su richiesta. Si può però dare a ogni parola una <b>pronuncia</b> fatta di parole che il modello conosce (es. «Gesualdi» → «gesù aldi»): verrà riconosciuta e agganciata alla parola del copione. Le parole sconosciute senza pronuncia vengono saltate dall'inseguimento senza penalità. I numeri in cifre si leggono già in lettere (118 → centodiciotto)."))
         intro.setWordWrap(True)
         v.addWidget(intro)
         row = QHBoxLayout()
-        self.check_btn = QPushButton("Controlla le parole con il modello")
+        self.check_btn = QPushButton(_('Controlla le parole con il modello'))
         self.check_btn.clicked.connect(self.check)
         row.addWidget(self.check_btn)
-        self.auto_btn = QPushButton("Proposte automatiche")
-        self.auto_btn.setToolTip("Per le parole sconosciute senza pronuncia: accento finale, parola divisa in parti "
-                                 "note («aspirapolvere» → «aspira polvere»), numeri")
+        self.auto_btn = QPushButton(_('Proposte automatiche'))
+        self.auto_btn.setToolTip(_('Per le parole sconosciute senza pronuncia: accento finale, parola divisa in parti note («aspirapolvere» → «aspira polvere»), numeri'))
         self.auto_btn.clicked.connect(self.auto)
         self.auto_btn.setEnabled(False)
         row.addWidget(self.auto_btn)
         row.addStretch(1)
         self.add_word = QLineEdit()
-        self.add_word.setPlaceholderText("aggiungi una parola a mano…")
+        self.add_word.setPlaceholderText(_('aggiungi una parola a mano…'))
         self.add_word.returnPressed.connect(self._add_manual)
         row.addWidget(self.add_word)
         v.addLayout(row)
@@ -56,8 +50,8 @@ class VocabDialog(QDialog):
         self.msg.setWordWrap(True)
         v.addWidget(self.msg)
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Parola del copione", "Volte", "Pronuncia (parole note al modello)",
-                                              "Stato"])
+        self.table.setHorizontalHeaderLabels([_('Parola del copione'), _('Volte'), _('Pronuncia (parole note al modello)'),
+                                              _('Stato')])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         hh = self.table.horizontalHeader()
@@ -75,11 +69,11 @@ class VocabDialog(QDialog):
         self.relay.done.connect(self._checked)
         self._filling = False
         self._fill({w: a for w, a in self.doc.aliases.items()})
-        if self.mw.rec.model is not None:          # modello già caricato: controllo subito
+        if self.mw.rec.model is not None and hasattr(self.mw.rec.model, "vosk_model_find_word") \
+                and LANGS[self.mw.project.language]["engine"] == "vosk":  # modello già caricato
             self._checked(self.mw.rec.known_fn(self.mw.rec.model), "")
         else:
-            self.msg.setText("Premi «Controlla le parole con il modello» per sapere quali parole non conosce "
-                             "(serve qualche secondo per caricare il modello).")
+            self.msg.setText(_('Premi «Controlla le parole con il modello» per sapere quali parole non conosce (serve qualche secondo per caricare il modello).'))
             self.msg.setStyleSheet("color:#999;")
         self.resize(760, 620)
 
@@ -111,20 +105,20 @@ class VocabDialog(QDialog):
         w = self.table.item(r, C_WORD).text()
         say = self.table.item(r, C_SAY).text().strip()
         it = self.table.item(r, C_STATE)
-        toks = normalize(say) if say else normalize(default_alias(w) or w)
+        toks = normalize(say) if say else normalize(default_alias(w, self.doc.lang) or w)
         if self.known is None:
             it.setText("—")
             it.setForeground(QColor(150, 150, 158))
             return
         missing = [t for t in toks if not self.known(t)]
         if not missing:
-            it.setText("✔ riconoscibile")
+            it.setText(_('✔ riconoscibile'))
             it.setForeground(QColor(108, 192, 112))
         elif say:
-            it.setText("⚠ non note: " + ", ".join(missing))
+            it.setText("⚠ " + _("non note: {0}").format(", ".join(missing)))
             it.setForeground(QColor(224, 160, 48))
         else:
-            it.setText("✘ sconosciuta (saltata)")
+            it.setText(_('✘ sconosciuta (saltata)'))
             it.setForeground(QColor(220, 90, 80))
 
     def _edited(self, item):
@@ -133,17 +127,23 @@ class VocabDialog(QDialog):
 
     # ------------------------------------------------------------ controllo col modello
     def check(self):
-        path = find_model(self.mw.rec_cfg["model"])
+        lang = self.mw.project.language
+        if LANGS[lang]["engine"] != "vosk":
+            self.msg.setText(_("Con Whisper (sloveno) il vocabolario è aperto: tutte le parole possono essere "
+                               "riconosciute, il controllo non serve."))
+            self.msg.setStyleSheet("color:#6c6;")
+            return
+        path = find_model(lang)
         if not path:
-            self.msg.setText("Nessun modello vocale: scaricalo da Impostazioni › Riconoscimento.")
+            self.msg.setText(_('Nessun modello vocale: scaricalo da Lingua › Lingue del riconoscimento.'))
             self.msg.setStyleSheet("color:#e66;")
             return
         if not self.mw.rec.available():
-            self.msg.setText("Vosk non è installato.")
+            self.msg.setText(_('Vosk non è installato.'))
             self.msg.setStyleSheet("color:#e66;")
             return
         self.check_btn.setEnabled(False)
-        self.msg.setText("Carico il modello e controllo le parole…")
+        self.msg.setText(_('Carico il modello e controllo le parole…'))
         self.msg.setStyleSheet("color:#999;")
 
         def run():
@@ -157,18 +157,17 @@ class VocabDialog(QDialog):
     def _checked(self, known, err):
         self.check_btn.setEnabled(True)
         if known is None:
-            self.msg.setText(f"Controllo non riuscito: {err}")
+            self.msg.setText(_('Controllo non riuscito: {0}').format(err))
             self.msg.setStyleSheet("color:#e66;")
             return
         self.known = known
         aliases = {w: s for _r, w, s in self._rows()}
-        unknown = [w for w in self.counts if not all(known(t) for t in normalize(default_alias(w) or w))]
+        unknown = [w for w in self.counts
+                   if not all(known(t) for t in normalize(default_alias(w, self.doc.lang) or w))]
         self._fill(aliases, unknown)
         n_occ = sum(self.counts[w] for w in unknown)
         tot = sum(self.counts.values())
-        self.msg.setText(f"{len(unknown)} parole su {len(self.counts)} non sono nel vocabolario del modello "
-                         f"({n_occ} occorrenze su {tot}, {100.0 * n_occ / max(1, tot):.1f}% del parlato). "
-                         "Le più frequenti sono in cima.")
+        self.msg.setText(_('{0} parole su {1} non sono nel vocabolario del modello ({2} occorrenze su {3}, {4:.1f}% del parlato). Le più frequenti sono in cima.').format(len(unknown), len(self.counts), n_occ, tot, 100.0 * n_occ / max(1, tot)))
         self.msg.setStyleSheet("color:#6c6;" if not unknown else "color:#e0b040;")
         self.auto_btn.setEnabled(True)
 
@@ -178,13 +177,16 @@ class VocabDialog(QDialog):
         n = 0
         for r, w, say in list(self._rows()):
             if not say:
-                s = suggest(w, self.known)
+                s = suggest(w, self.known, self.doc.lang)
                 if s:
                     self.table.item(r, C_SAY).setText(s)
                     n += 1
-        self.msg.setText(("1 proposta inserita" if n == 1 else f"{n} proposte inserite")
-                         + ": controllale (puoi modificarle o cancellarle) e premi OK." if n else
-                         "Nessuna proposta automatica: scrivi tu la pronuncia con parole che il modello conosce.")
+        if n:
+            self.msg.setText((_("1 proposta inserita") if n == 1 else _("{0} proposte inserite").format(n))
+                             + ": " + _("controllale (puoi modificarle o cancellarle) e premi OK."))
+        else:
+            self.msg.setText(_("Nessuna proposta automatica: scrivi tu la pronuncia con parole che il modello "
+                               "conosce."))
         self.msg.setStyleSheet("color:#6c6;")
 
     def _add_manual(self):

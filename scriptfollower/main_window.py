@@ -15,7 +15,8 @@ from .align import Aligner, normalize
 from .audio_input import AudioInput, audio_settings
 from .osc import clean_targets, describe, migrate_commands, send_commands
 from .project import EXT, FILE_FILTER, Cueing, Project, new_point
-from .recognizer import Recognizer, find_model
+from .languages import LANGS, ORDER, find_model, installed, model_lang
+from .recognizer import Recognizer
 from .script_doc import ScriptDoc
 from .system import APP_NAME
 from .timing import Timing
@@ -24,6 +25,7 @@ from .ui_meter import GateMeter
 from .ui_panel import NextPanel
 from .ui_point import PointDialog
 from .ui_settings import SettingsDialog, panel_settings, rec_settings
+from .i18n import _
 
 PDF_FILTER = "Copione PDF (*.pdf);;Tutti i file (*)"
 CHECK_STYLE = ("QPushButton{padding:0 12px;font-weight:bold;font-size:13px;border-radius:6px;}"
@@ -97,10 +99,10 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(6, 6, 6, 6)
 
         bar = QHBoxLayout()
-        self.listen_btn = QPushButton("ASCOLTA")
+        self.listen_btn = QPushButton(_('ASCOLTA'))
         self.listen_btn.setFixedSize(150, 70)
         self.listen_btn.setFocusPolicy(Qt.NoFocus)
-        self.listen_btn.setToolTip("Avvia / ferma l'ascolto del parlato (F5)")
+        self.listen_btn.setToolTip(_("Avvia / ferma l'ascolto del parlato (F5)"))
         self.listen_btn.clicked.connect(self.toggle_listen)
         bar.addWidget(self.listen_btn)
         # sospensione: il modello resta caricato, ma la posizione si muove solo a mano
@@ -108,14 +110,13 @@ class MainWindow(QMainWindow):
         self.suspend_btn.setFixedHeight(70)
         self.suspend_btn.setMinimumWidth(116)
         self.suspend_btn.setFocusPolicy(Qt.NoFocus)
-        self.suspend_btn.setToolTip("Sospendi / riprendi l'ascolto (F8): da sospeso la posizione si sposta solo a mano "
-                                    "(doppio clic su una parola, Ctrl+↑/↓) e i pulsanti si usano normalmente")
+        self.suspend_btn.setToolTip(_("Sospendi / riprendi l'ascolto (F8): da sospeso la posizione si sposta solo a mano (doppio clic su una parola, Ctrl+↑/↓) e i pulsanti si usano normalmente"))
         self.suspend_btn.clicked.connect(self.toggle_suspend)
         bar.addWidget(self.suspend_btn)
         mv = QVBoxLayout()
         mv.setSpacing(4)
-        self.prep_btn = QPushButton("✎ Preparazione")
-        self.show_btn = QPushButton("▶ Spettacolo")
+        self.prep_btn = QPushButton(_('✎ Preparazione'))
+        self.show_btn = QPushButton(_('▶ Spettacolo'))
         for b, on in ((self.prep_btn, True), (self.show_btn, False)):
             b.setCheckable(True)
             b.setFocusPolicy(Qt.NoFocus)
@@ -124,12 +125,12 @@ class MainWindow(QMainWindow):
             b.setStyleSheet(CHECK_STYLE)
             b.clicked.connect(lambda _c=False, on=on: self.set_mode(on))
             mv.addWidget(b)
-        self.prep_btn.setToolTip("Preparazione: aggiungi pulsanti e annotazioni (Ctrl+E)")
-        self.show_btn.setToolTip("Spettacolo: i pulsanti inviano OSC, la vista segue il parlato (Ctrl+E)")
+        self.prep_btn.setToolTip(_('Preparazione: aggiungi pulsanti e annotazioni (Ctrl+E)'))
+        self.show_btn.setToolTip(_('Spettacolo: i pulsanti inviano OSC, la vista segue il parlato (Ctrl+E)'))
         bar.addLayout(mv)
         bar.addSpacing(6)
         sb = QVBoxLayout()
-        sb.addWidget(QLabel("Posizione:"))
+        sb.addWidget(QLabel(_('Posizione:')))
         self.pos_label = QLabel("—")
         f = QFont()
         f.setPointSize(16)
@@ -143,8 +144,8 @@ class MainWindow(QMainWindow):
         nav = QVBoxLayout()
         nav.setSpacing(4)
         r1 = QHBoxLayout()
-        for text, fn, tip in (("◀ Riga", lambda: self.step_line(-1), "Riga precedente (Ctrl+↑)"),
-                              ("Riga ▶", lambda: self.step_line(1), "Riga successiva (Ctrl+↓)")):
+        for text, fn, tip in ((_("◀ Riga"), lambda: self.step_line(-1), _("Riga precedente (Ctrl+↑)")),
+                              (_("Riga ▶"), lambda: self.step_line(1), _("Riga successiva (Ctrl+↓)"))):
             b = QPushButton(text)
             b.setFixedHeight(32)
             b.setFocusPolicy(Qt.NoFocus)
@@ -153,29 +154,28 @@ class MainWindow(QMainWindow):
             r1.addWidget(b)
         nav.addLayout(r1)
         r2 = QHBoxLayout()
-        b = QPushButton("⟲ Dall'inizio")
+        b = QPushButton(_("⟲ Dall'inizio"))
         b.setFixedHeight(32)
         b.setFocusPolicy(Qt.NoFocus)
-        b.setToolTip("Riporta la posizione all'inizio del copione e riattiva tutti i punti")
+        b.setToolTip(_("Riporta la posizione all'inizio del copione e riattiva tutti i punti"))
         b.clicked.connect(self.restart)
         r2.addWidget(b)
-        self.follow_btn = QPushButton("Segui")
+        self.follow_btn = QPushButton(_('Segui'))
         self.follow_btn.setCheckable(True)
         self.follow_btn.setChecked(True)
         self.follow_btn.setFixedHeight(32)
         self.follow_btn.setFocusPolicy(Qt.NoFocus)
         self.follow_btn.setStyleSheet(CHECK_STYLE)
-        self.follow_btn.setToolTip("La vista scorre seguendo il parlato (F6). Se scorri a mano, si ferma per 5 s.")
+        self.follow_btn.setToolTip(_('La vista scorre seguendo il parlato (F6). Se scorri a mano, si ferma per 5 s.'))
         self.follow_btn.toggled.connect(self._follow_toggled)
         r2.addWidget(self.follow_btn)
-        self.timing_btn = QPushButton("⏺ Tempi")
+        self.timing_btn = QPushButton(_('⏺ Tempi'))
         self.timing_btn.setCheckable(True)
         self.timing_btn.setFixedHeight(32)
         self.timing_btn.setFocusPolicy(Qt.NoFocus)
         self.timing_btn.setStyleSheet("QPushButton{padding:0 10px;font-weight:bold;font-size:13px;border-radius:6px;}"
                                       "QPushButton:checked{background:#b3261e;color:white;}")
-        self.timing_btn.setToolTip("Registra i tempi tra un evento e l'altro durante la replica: la media delle "
-                                   "repliche dà il «tempo stimato» del prossimo evento")
+        self.timing_btn.setToolTip(_("Registra i tempi tra un evento e l'altro durante la replica: la media delle repliche dà il «tempo stimato» del prossimo evento"))
         self.timing_btn.toggled.connect(self.set_timing_recording)
         r1.addWidget(self.timing_btn)
         nav.addLayout(r2)
@@ -185,12 +185,12 @@ class MainWindow(QMainWindow):
         cv.setSpacing(4)
         self.nav_prev_btn = QPushButton()
         self.nav_next_btn = QPushButton()
-        for b, d, tip in ((self.nav_prev_btn, -1, "Mostra il comando precedente nel copione (Alt+↑)"),
-                          (self.nav_next_btn, 1, "Mostra il comando successivo nel copione (Alt+↓)")):
+        for b, d, tip in ((self.nav_prev_btn, -1, _("Mostra il comando precedente nel copione (Alt+↑)")),
+                          (self.nav_next_btn, 1, _("Mostra il comando successivo nel copione (Alt+↓)"))):
             b.setFixedHeight(32)
             b.setFixedWidth(190)
             b.setFocusPolicy(Qt.NoFocus)
-            b.setToolTip(tip + ". Solo la vista si sposta: la posizione dello spettacolo non cambia.")
+            b.setToolTip(tip + ". " + _("Solo la vista si sposta: la posizione dello spettacolo non cambia."))
             b.setStyleSheet("QPushButton{text-align:left;padding:0 8px;font-size:12px;}")
             b.clicked.connect(lambda _c=False, d=d: self.nav_command(d))
             sp = b.sizePolicy()
@@ -209,7 +209,7 @@ class MainWindow(QMainWindow):
         mvb = QVBoxLayout()
         mvb.addStretch(1)
         mh = QHBoxLayout()
-        ml = QLabel("Ingresso · gate")
+        ml = QLabel(_('Ingresso · gate'))
         ml.setStyleSheet("font-weight:bold;")
         mh.addWidget(ml)
         mh.addStretch(1)
@@ -219,7 +219,7 @@ class MainWindow(QMainWindow):
         self.mon_btn.setFocusPolicy(Qt.NoFocus)
         self.mon_btn.setStyleSheet("QPushButton{border-radius:4px;font-size:12px;padding:0;}"
                                    "QPushButton:checked{background:#2d5f8a;color:white;}")
-        self.mon_btn.setToolTip("Preascolto in cuffia dell'ingresso (scheda e canali in Impostazioni › Audio)")
+        self.mon_btn.setToolTip(_("Preascolto in cuffia dell'ingresso (scheda e canali in Impostazioni › Audio)"))
         self.mon_btn.setChecked(self.audio_cfg["mon_on"])
         self.mon_btn.toggled.connect(self._mon_toggled)
         mh.addWidget(self.mon_btn)
@@ -266,56 +266,72 @@ class MainWindow(QMainWindow):
             menu.addAction(a)
             return a
 
-        m = mb.addMenu("&File")
-        add(m, "Apri copione PDF…", self.open_pdf_dialog, "Ctrl+O")
-        add(m, "Apri progetto…", self.open_project_dialog, "Ctrl+Shift+O")
-        add(m, "Salva", self.save, "Ctrl+S")
-        add(m, "Salva con nome…", self.save_as, "Ctrl+Shift+S")
+        m = mb.addMenu(_('&File'))
+        add(m, _('Apri copione PDF…'), self.open_pdf_dialog, "Ctrl+O")
+        add(m, _('Apri progetto…'), self.open_project_dialog, "Ctrl+Shift+O")
+        add(m, _('Salva'), self.save, "Ctrl+S")
+        add(m, _('Salva con nome…'), self.save_as, "Ctrl+Shift+S")
         m.addSeparator()
-        add(m, "Esci", self.close, "Ctrl+Q")
+        add(m, _('Esci'), self.close, "Ctrl+Q")
 
-        m = mb.addMenu("&Modifica")
-        add(m, "Preparazione / Spettacolo", lambda: self.set_mode(not self.prep), "Ctrl+E")
+        m = mb.addMenu(_('&Modifica'))
+        add(m, _('Preparazione / Spettacolo'), lambda: self.set_mode(not self.prep), "Ctrl+E")
         m.addSeparator()
-        add(m, "Vocabolario del copione…", self.vocab_dialog, "Ctrl+Shift+V")
-        add(m, "Ripristina le parole escluse automaticamente", self.reset_overrides)
-        add(m, "Elimina tutti i punti…", self.delete_all_points)
+        add(m, _('Vocabolario del copione…'), self.vocab_dialog, "Ctrl+Shift+V")
+        add(m, _('Ripristina le parole escluse automaticamente'), self.reset_overrides)
+        add(m, _('Elimina tutti i punti…'), self.delete_all_points)
 
-        m = mb.addMenu("&Spettacolo")
-        add(m, "Ascolta / ferma", self.toggle_listen, "F5")
-        add(m, "Sospendi / riprendi l'ascolto (modo manuale)", self.toggle_suspend, "F8")
-        add(m, "Segui il parlato", lambda: self.follow_btn.toggle(), "F6")
-        self.timing_act = add(m, "Registra i tempi degli eventi", lambda on: self.set_timing_recording(on), "F7")
+        m = mb.addMenu(_('&Spettacolo'))
+        add(m, _('Ascolta / ferma'), self.toggle_listen, "F5")
+        add(m, _("Sospendi / riprendi l'ascolto (modo manuale)"), self.toggle_suspend, "F8")
+        add(m, _('Segui il parlato'), lambda: self.follow_btn.toggle(), "F6")
+        self.timing_act = add(m, _('Registra i tempi degli eventi'), lambda on: self.set_timing_recording(on), "F7")
         self.timing_act.setCheckable(True)
-        add(m, "Cancella i tempi registrati…", self.clear_timing)
+        add(m, _('Cancella i tempi registrati…'), self.clear_timing)
         m.addSeparator()
-        a = add(m, "Invia il prossimo evento", self.fire_next)
+        a = add(m, _('Invia il prossimo evento'), self.fire_next)
         a.setShortcut(QKeySequence(Qt.Key_Space))
         a.setShortcutContext(Qt.WindowShortcut)
-        add(m, "Mostra il comando precedente", lambda: self.nav_command(-1), "Alt+Up")
-        add(m, "Mostra il comando successivo", lambda: self.nav_command(1), "Alt+Down")
-        add(m, "Riga precedente", lambda: self.step_line(-1), "Ctrl+Up")
-        add(m, "Riga successiva", lambda: self.step_line(1), "Ctrl+Down")
-        add(m, "Torna all'inizio", self.restart, "Ctrl+Home")
-        add(m, "Vai alla posizione corrente", self.go_current, "Ctrl+L")
+        add(m, _('Mostra il comando precedente'), lambda: self.nav_command(-1), "Alt+Up")
+        add(m, _('Mostra il comando successivo'), lambda: self.nav_command(1), "Alt+Down")
+        add(m, _('Riga precedente'), lambda: self.step_line(-1), "Ctrl+Up")
+        add(m, _('Riga successiva'), lambda: self.step_line(1), "Ctrl+Down")
+        add(m, _("Torna all'inizio"), self.restart, "Ctrl+Home")
+        add(m, _('Vai alla posizione corrente'), self.go_current, "Ctrl+L")
         m.addSeparator()
-        add(m, "Simula il parlato…", self.simulate_dialog, "F4")
+        add(m, _('Simula il parlato…'), self.simulate_dialog, "F4")
         m.addSeparator()
-        add(m, "Ingrandisci", lambda: self.view.set_zoom(self.view.canvas.zoom * 1.1), "Ctrl++")
-        add(m, "Riduci", lambda: self.view.set_zoom(self.view.canvas.zoom / 1.1), "Ctrl+-")
-        add(m, "Adatta alla larghezza", lambda: self.view.set_zoom(1.0), "Ctrl+0")
+        add(m, _('Ingrandisci'), lambda: self.view.set_zoom(self.view.canvas.zoom * 1.1), "Ctrl++")
+        add(m, _('Riduci'), lambda: self.view.set_zoom(self.view.canvas.zoom / 1.1), "Ctrl+-")
+        add(m, _('Adatta alla larghezza'), lambda: self.view.set_zoom(1.0), "Ctrl+0")
 
-        m = mb.addMenu("&Impostazioni")
-        add(m, "Impostazioni…", lambda: self.settings_dialog(0), "Ctrl+,")
+        m = mb.addMenu(_('&Impostazioni'))
+        add(m, _('Impostazioni…'), lambda: self.settings_dialog(0), "Ctrl+,")
         m.addSeparator()
-        add(m, "Audio e gate…", lambda: self.settings_dialog(0))
-        add(m, "Profili OSC…", lambda: self.settings_dialog(1))
-        add(m, "Riconoscimento vocale…", lambda: self.settings_dialog(2))
-        add(m, "Riquadro «Prossimo evento»…", lambda: self.settings_dialog(3))
+        add(m, _('Audio e gate…'), lambda: self.settings_dialog(0))
+        add(m, _('Profili OSC…'), lambda: self.settings_dialog(1))
+        add(m, _('Riconoscimento vocale…'), lambda: self.settings_dialog(2))
+        add(m, _('Riquadro «Prossimo evento»…'), lambda: self.settings_dialog(3))
 
-        m = mb.addMenu("&Aiuto")
-        add(m, "Guida rapida", self.help_dialog, "F1")
-        add(m, "Informazioni", self.about)
+        m = mb.addMenu(_("&Lingua"))
+        self.lang_menu = m.addMenu(_("Lingua del copione (riconoscimento)"))
+        self.lang_menu.aboutToShow.connect(self._fill_lang_menu)
+        add(m, _("Lingue del riconoscimento…"), lambda: self.languages_dialog())
+        m.addSeparator()
+        ui = m.addMenu(_("Lingua dell'interfaccia"))
+        from PySide6.QtGui import QActionGroup
+        from .i18n import UI_LANGS, language
+        grp = QActionGroup(self)
+        for code, name in UI_LANGS:
+            a = ui.addAction(name)
+            a.setCheckable(True)
+            a.setChecked(code == language())
+            grp.addAction(a)
+            a.triggered.connect(lambda _c=False, c=code: self.set_ui_language(c))
+
+        m = mb.addMenu(_('&Aiuto'))
+        add(m, _('Guida rapida'), self.help_dialog, "F1")
+        add(m, _('Informazioni'), self.about)
 
     def _build_shortcuts(self):
         sc = QShortcut(QKeySequence(Qt.Key_Escape), self)
@@ -327,7 +343,7 @@ class MainWindow(QMainWindow):
 
     def _update_title(self):
         name = os.path.basename(self.project.path) if self.project.path else (
-            os.path.basename(self.project.pdf) if self.project.pdf else "nessun copione")
+            os.path.basename(self.project.pdf) if self.project.pdf else _("nessun copione"))
         self.setWindowTitle(f"{APP_NAME} — {name}{' *' if self.project.dirty else ''}")
 
     def _listen_look(self, loading=False):
@@ -336,27 +352,27 @@ class MainWindow(QMainWindow):
             self.listen_btn.setStyleSheet(
                 "QPushButton{background:#8a6d1a;color:white;font-size:22px;font-weight:bold;border-radius:8px;}")
         elif self.listening and self.suspended:
-            self.listen_btn.setText("MANUALE")
+            self.listen_btn.setText(_('MANUALE'))
             self.listen_btn.setStyleSheet(
                 "QPushButton{background:#8a6d1a;color:white;font-size:22px;font-weight:bold;border-radius:8px;}"
                 "QPushButton:pressed{background:#b08a20;}")
         elif self.listening:
-            self.listen_btn.setText("● IN ASCOLTO")
+            self.listen_btn.setText(_('● IN ASCOLTO'))
             self.listen_btn.setStyleSheet(
                 "QPushButton{background:#b3261e;color:white;font-size:17px;font-weight:bold;border-radius:8px;}"
                 "QPushButton:pressed{background:#e0453a;}")
         else:
-            self.listen_btn.setText("ASCOLTA")
+            self.listen_btn.setText(_('ASCOLTA'))
             self.listen_btn.setStyleSheet(
                 "QPushButton{background:#1f8f45;color:white;font-size:24px;font-weight:bold;border-radius:8px;}"
                 "QPushButton:pressed{background:#2bc060;}")
         base = "QPushButton{{background:{};color:white;font-weight:bold;font-size:14px;border-radius:8px;padding:0 10px;}}" \
                "QPushButton:disabled{{background:#3a3c44;color:#777;}}"
         if self.suspended:
-            self.suspend_btn.setText("▶ Riprendi\nascolto")
+            self.suspend_btn.setText(_('▶ Riprendi\nascolto'))
             self.suspend_btn.setStyleSheet(base.format("#2d5f8a"))
         else:
-            self.suspend_btn.setText("❚❚ Sospendi\nascolto")
+            self.suspend_btn.setText(_('❚❚ Sospendi\nascolto'))
             self.suspend_btn.setStyleSheet(base.format("#8a6d1a"))
         self.suspend_btn.setEnabled(self.listening)
 
@@ -366,9 +382,9 @@ class MainWindow(QMainWindow):
         self.show_btn.setChecked(not self.prep)
         self.view.canvas.prep = self.prep
         self.view.canvas.clear_selection()
-        self.panel.hint.setText("Spazio = invia il prossimo evento" if not self.prep else
-                                "In preparazione i pulsanti si modificano con un clic; "
-                                "passa a «Spettacolo» per inviarli")
+        self.panel.hint.setText(_("Spazio = invia il prossimo evento") if not self.prep else
+                                _("In preparazione i pulsanti si modificano con un clic; "
+                                  "passa a «Spettacolo» per inviarli"))
         self.refresh_points()
         if not self.prep and self.cueing.pos >= 0:
             self.view.ensure_word(self.cueing.pos, force=True)
@@ -407,7 +423,7 @@ class MainWindow(QMainWindow):
     def _confirm_discard(self):
         if not self.project.dirty:
             return True
-        r = QMessageBox.question(self, APP_NAME, "Il progetto ha modifiche non salvate. Salvarle?",
+        r = QMessageBox.question(self, APP_NAME, _('Il progetto ha modifiche non salvate. Salvarle?'),
                                  QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
         if r == QMessageBox.Save:
             return self.save()
@@ -417,7 +433,7 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             return
         start = os.path.dirname(self.project.pdf) if self.project.pdf else os.path.expanduser("~")
-        p, _ = QFileDialog.getOpenFileName(self, "Apri copione PDF", start, PDF_FILTER)
+        p, _f = QFileDialog.getOpenFileName(self, _('Apri copione PDF'), start, _(PDF_FILTER))
         if p:
             self.open_pdf(p)
 
@@ -425,43 +441,42 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             return
         start = os.path.dirname(self.project.path or self.project.pdf or os.path.expanduser("~"))
-        p, _ = QFileDialog.getOpenFileName(self, "Apri progetto", start, FILE_FILTER)
+        p, _f = QFileDialog.getOpenFileName(self, _('Apri progetto'), start, _(FILE_FILTER))
         if p:
             self.open_project(p)
 
     def open_pdf(self, path):
         side = os.path.splitext(path)[0] + EXT
         if os.path.isfile(side):
-            r = QMessageBox.question(self, APP_NAME, f"Accanto al PDF c'è il progetto «{os.path.basename(side)}» "
-                                     "con i suoi pulsanti e note. Aprirlo?", QMessageBox.Yes | QMessageBox.No)
+            r = QMessageBox.question(self, APP_NAME, _("Accanto al PDF c'è il progetto «{0}» con i suoi pulsanti e note. Aprirlo?").format(os.path.basename(side)), QMessageBox.Yes | QMessageBox.No)
             if r == QMessageBox.Yes:
                 self.open_project(side)
                 return
         try:
             doc = ScriptDoc(path)
         except Exception as e:  # noqa: BLE001
-            QMessageBox.warning(self, APP_NAME, f"Impossibile aprire il PDF:\n{e}")
+            QMessageBox.warning(self, APP_NAME, _('Impossibile aprire il PDF:\n{0}').format(e))
             return
         p = Project()
         p.pdf = doc.path
         p.pdf_sha1 = doc.sha1
         p.targets = clean_targets(self.project.targets)
+        p.language = self.project.language           # un copione nuovo: la stessa lingua dell'ultimo
         p.dirty = True
         self._set_project(p, doc)
         if not doc.tokens:
-            QMessageBox.warning(self, APP_NAME, "In questo PDF non c'è testo selezionabile (forse è una scansione): "
-                                "serve un PDF esportato da Word / LibreOffice, oppure passato da un OCR.")
+            QMessageBox.warning(self, APP_NAME, _("In questo PDF non c'è testo selezionabile (forse è una scansione): serve un PDF esportato da Word / LibreOffice, oppure passato da un OCR."))
 
     def open_project(self, path):
         try:
             p = Project.load(path)
         except Exception as e:  # noqa: BLE001
-            QMessageBox.warning(self, APP_NAME, f"Impossibile aprire il progetto:\n{e}")
+            QMessageBox.warning(self, APP_NAME, _('Impossibile aprire il progetto:\n{0}').format(e))
             return
         pdf = p.pdf
         if not pdf or not os.path.isfile(pdf):
-            QMessageBox.information(self, APP_NAME, f"Il PDF del progetto non si trova:\n{pdf}\n\nIndica dov'è.")
-            pdf, _ = QFileDialog.getOpenFileName(self, "Dov'è il copione PDF?", os.path.dirname(path), PDF_FILTER)
+            QMessageBox.information(self, APP_NAME, _("Il PDF del progetto non si trova:\n{0}\n\nIndica dov'è.").format(pdf))
+            pdf, _f = QFileDialog.getOpenFileName(self, _("Dov'è il copione PDF?"), os.path.dirname(path), _(PDF_FILTER))
             if not pdf:
                 return
             p.pdf = pdf
@@ -469,12 +484,10 @@ class MainWindow(QMainWindow):
         try:
             doc = ScriptDoc(pdf)
         except Exception as e:  # noqa: BLE001
-            QMessageBox.warning(self, APP_NAME, f"Impossibile aprire il PDF:\n{e}")
+            QMessageBox.warning(self, APP_NAME, _('Impossibile aprire il PDF:\n{0}').format(e))
             return
         if p.pdf_sha1 and p.pdf_sha1 != doc.sha1:
-            QMessageBox.warning(self, APP_NAME, "Il PDF è cambiato da quando il progetto è stato salvato: pulsanti e "
-                                "note sono agganciati alle parole per posizione e potrebbero risultare spostati. "
-                                "Controllali in Preparazione.")
+            QMessageBox.warning(self, APP_NAME, _('Il PDF è cambiato da quando il progetto è stato salvato: pulsanti e note sono agganciati alle parole per posizione e potrebbero risultare spostati. Controllali in Preparazione.'))
             p.pdf_sha1 = doc.sha1
             p.dirty = True
         if any(pt["word"] >= len(doc.words) for pt in p.points):
@@ -495,6 +508,7 @@ class MainWindow(QMainWindow):
         doc.set_overrides(p.overrides)
         doc.set_improv(p.improv)
         doc.set_aliases(p.aliases)
+        doc.set_language(p.language)
         self.unknown_words = set()
         self.cueing = Cueing(p)
         rec_on = self.timing.recording
@@ -508,8 +522,7 @@ class MainWindow(QMainWindow):
         self._update_position()
         self._update_title()
         n_b = sum(1 for x in p.points if x["kind"] == "button")
-        self.status(f"{os.path.basename(doc.path)}: {doc.n_pages} pagine, {len(doc.tokens)} parole da seguire, "
-                    f"{n_b} pulsanti, {len(p.points) - n_b} note")
+        self.status(_('{0}: {1} pagine, {2} parole da seguire, {3} pulsanti, {4} note').format(os.path.basename(doc.path), doc.n_pages, len(doc.tokens), n_b, len(p.points) - n_b))
 
     def save(self):
         if not self.project.pdf:
@@ -520,19 +533,19 @@ class MainWindow(QMainWindow):
             self.project.overrides = dict(self.doc.overrides) if self.doc else {}
             self.project.save()
         except OSError as e:
-            QMessageBox.warning(self, APP_NAME, f"Salvataggio non riuscito:\n{e}")
+            QMessageBox.warning(self, APP_NAME, _('Salvataggio non riuscito:\n{0}').format(e))
             return False
         self.qs.setValue("last_project", self.project.path)
         self._qs_save("osc_targets", self.project.targets)
         self._update_title()
-        self.status(f"Salvato {self.project.path}")
+        self.status(_('Salvato {0}').format(self.project.path))
         return True
 
     def save_as(self):
         if not self.project.pdf:
             return False
         start = self.project.path or os.path.splitext(self.project.pdf)[0] + EXT
-        p, _ = QFileDialog.getSaveFileName(self, "Salva progetto", start, FILE_FILTER)
+        p, _f = QFileDialog.getSaveFileName(self, _('Salva progetto'), start, _(FILE_FILTER))
         if not p:
             return False
         self.project.path = p if p.endswith(EXT) else p + EXT
@@ -577,32 +590,54 @@ class MainWindow(QMainWindow):
 
     def start_listen(self):
         if self.doc is None:
-            self.status("Apri prima un copione")
+            self.status(_('Apri prima un copione'))
             return
-        model = find_model(self.rec_cfg["model"])
+        lang = self.project.language
+        info = LANGS[lang]
+        pref = self.rec_cfg["model"]
+        if pref and model_lang(os.path.basename(pref.rstrip("/\\"))) not in (lang, None):
+            pref = ""                            # il modello scelto a mano è di un'altra lingua
+        model = find_model(lang, pref)
         if not model:
-            r = QMessageBox.question(self, APP_NAME, "Non c'è ancora un modello vocale italiano. Scaricarlo adesso "
-                                     "(circa 50 MB, una volta sola)?\n\nIn alternativa: Spettacolo › Simula il "
-                                     "parlato, per provare senza microfono.", QMessageBox.Yes | QMessageBox.No)
+            r = QMessageBox.question(
+                self, APP_NAME, _("Il modello vocale per «{0}» non c'è ancora. Scaricarlo adesso (circa {1} MB, una "
+                                  "volta sola)?\n\nIn alternativa: Spettacolo › Simula il parlato, per provare senza "
+                                  "microfono.").format(info["name"], info["mb"]), QMessageBox.Yes | QMessageBox.No)
             if r == QMessageBox.Yes:
-                self.settings_dialog(2)
+                self.languages_dialog(lang)
             return
-        if not self.rec.available():
-            QMessageBox.warning(self, APP_NAME, "Il modulo di riconoscimento vocale (vosk) non è installato.")
+        if info["engine"] == "vosk" and not self.rec.available():
+            QMessageBox.warning(self, APP_NAME, _('Il modulo di riconoscimento vocale (vosk) non è installato.'))
             return
+        if info["engine"] == "whisper":
+            from .whisper_engine import available
+            if not available():
+                QMessageBox.warning(self, APP_NAME, _("Il motore Whisper non è incluso in questa versione."))
+                return
         if not self.audio.listening:
             self.audio.configure(self.audio_cfg)
             if not self.audio.listening:
-                self.status(self.audio.error or "Ingresso audio non disponibile")
+                self.status(self.audio.error or _("Ingresso audio non disponibile"))
                 return
-        vocab = self.doc.vocabulary(self._vocab_from()) if self.rec_cfg["grammar"] else None
+        vocab = self.doc.vocabulary(self._vocab_from()) if self.rec_cfg["grammar"] and info["engine"] == "vosk" \
+            else None
         self._listen_look(loading=True)
         self.rec.clear_history()
-        self.rec.start(model, vocab)
+        self._update_prompt()
+        self.rec.start(model, vocab, engine=info["engine"], language=lang)
+
+    def _update_prompt(self):
+        """Whisper: il testo detto fino alla posizione attuale (ultime ~40 parole) come contesto."""
+        d = self.doc
+        if d is None:
+            return
+        pos = self.cueing.pos
+        words = [d.words[i].text for i in range(max(0, pos - 120), pos + 1) if d.words[i].spoken][-40:]
+        self.rec.set_prompt(" ".join(words))
 
     def toggle_suspend(self):
         if not self.listening:
-            self.status("L'ascolto non è attivo: premi ASCOLTA (F5)")
+            self.status(_("L'ascolto non è attivo: premi ASCOLTA (F5)"))
             return
         self.set_suspended(not self.suspended)
 
@@ -612,14 +647,14 @@ class MainWindow(QMainWindow):
         self.rec.flush()
         if self.suspended:
             self.audio.consumer = None
-            self.status("Ascolto sospeso: modo manuale (doppio clic su una parola o Ctrl+↑/↓ per spostarti)")
+            self.status(_('Ascolto sospeso: modo manuale (doppio clic su una parola o Ctrl+↑/↓ per spostarti)'))
         else:
             if self.aligner is not None and self.doc is not None:      # si riparte dalla posizione attuale
                 pos = self.cueing.pos
                 self.aligner.reset(self.doc.last_token_at_or_before(pos) if pos >= 0 else -1)
             self.timing.jumped()                 # il tempo passato in manuale non entra nelle medie
             self.audio.consumer = self.rec.feed if self.listening else None
-            self.status("Ascolto ripreso dalla posizione attuale")
+            self.status(_('Ascolto ripreso dalla posizione attuale'))
         self._listen_look()
         self._update_position()
 
@@ -679,6 +714,8 @@ class MainWindow(QMainWindow):
             return
         self._timing_events(self.cueing.pos, word, manual)
         self.cueing.set_pos(word)
+        if self.listening and LANGS[self.project.language]["engine"] == "whisper":
+            self._update_prompt()
         self.view.canvas.cur_word = word
         self.view.canvas.update()
         if scroll and word >= 0:
@@ -696,7 +733,7 @@ class MainWindow(QMainWindow):
             self.aligner.reset(tok)
         self.rec.clear_history()
         self.set_position(word, force=True, manual=True)
-        self.status(f"Riparto da «{self.doc.words[word].text}» (pagina {self.doc.words[word].page + 1})")
+        self.status(_('Riparto da «{0}» (pagina {1})').format(self.doc.words[word].text, self.doc.words[word].page + 1))
 
     def restart(self):
         if self.doc is None:
@@ -711,7 +748,7 @@ class MainWindow(QMainWindow):
         self.view.verticalScrollBar().setValue(0)
         self.refresh_states()
         self._update_position()
-        self.status("Posizione all'inizio del copione: tutti i punti sono di nuovo attivi")
+        self.status(_("Posizione all'inizio del copione: tutti i punti sono di nuovo attivi"))
 
     def step_line(self, d):
         if self.doc is None:
@@ -733,21 +770,23 @@ class MainWindow(QMainWindow):
         d = self.doc
         pos = self.cueing.pos
         if d is None or pos < 0:
-            self.pos_label.setText("—" if d is None else "Inizio del copione")
-            self.pos_notes.setText("" if d is None else f"{d.n_pages} pagine · {len(d.tokens)} parole da seguire")
+            self.pos_label.setText("—" if d is None else _("Inizio del copione"))
+            self.pos_notes.setText("" if d is None else _("{0} pagine · {1} parole da seguire").format(
+                d.n_pages, len(d.tokens)))
             return
         w = d.words[pos]
         ln = d.lines[w.line]
         tail = [d.words[i].text for i in ln.words if i <= pos][-7:]
-        self.pos_label.setText(f"Pag. {w.page + 1} · «… {' '.join(tail)}»")
+        self.pos_label.setText(_('Pag. {0} · «… {1}»').format(w.page + 1, ' '.join(tail)))
         pct = 100.0 * (max(0, w.t0) + 1) / max(1, len(d.tokens))
         a = self.aligner
         fl = ""
         if a is not None and a.floor > 0:
             fw = d.words[d.word_of_token(a.floor)]
-            fl = f" · ricerca da pag. {fw.page + 1}"
-        self.pos_notes.setText(f"{pct:.0f}% del copione" + fl + (" · ascolto sospeso: MODO MANUALE" if self.suspended else "")
-                                + (" · 🎭 parte improvvisata: si riprende al testo che segue"
+            fl = " · " + _("ricerca da pag. {0}").format(fw.page + 1)
+        self.pos_notes.setText(_("{0:.0f}% del copione").format(pct) + fl
+                               + (" · " + _("ascolto sospeso: MODO MANUALE") if self.suspended else "")
+                                + (" · 🎭 " + _("parte improvvisata: si riprende al testo che segue")
                                    if self.aligner is not None and self.aligner.pos in self.aligner.holds
                                    and self.aligner.pos >= 0 else ""))
 
@@ -808,7 +847,7 @@ class MainWindow(QMainWindow):
     def _update_nav(self):
         if not hasattr(self, "nav_prev_btn"):
             return
-        for b, d, arrow in ((self.nav_prev_btn, -1, "▲ Prec.:"), (self.nav_next_btn, 1, "▼ Succ.:")):
+        for b, d, arrow in ((self.nav_prev_btn, -1, "▲ " + _("Prec.:")), (self.nav_next_btn, 1, "▼ " + _("Succ.:"))):
             t = self._nav_target(d) if self.doc is not None else None
             b.setVisible(t is not None)
             if t is not None:
@@ -828,8 +867,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(2600, c.update)
         self._update_nav()
         w = self.doc.words[t["word"]]
-        self.status(f"Comando «{t.get('label')}» · pagina {w.page + 1} (la vista torna a seguire il parlato "
-                    "dopo qualche secondo; Ctrl+L per tornare subito)")
+        self.status(_('Comando «{0}» · pagina {1} (la vista torna a seguire il parlato dopo qualche secondo; Ctrl+L per tornare subito)').format(t.get('label'), w.page + 1))
 
     # =========================================================== zone trascinate in preparazione
     def _zone_resized(self, kind, a, b, na, nb):
@@ -851,8 +889,7 @@ class MainWindow(QMainWindow):
             if self.listening:
                 self.stop_listen()
                 self.start_listen()
-        self.status(f"Zona {'improvvisata' if kind == 'improv' else 'esclusa'}: «{self.doc.words[na].text}» … "
-                    f"«{self.doc.words[nb].text}»")
+        self.status(_('Zona {0}: «{1}» … «{2}»').format('improvvisata' if kind == 'improv' else 'esclusa', self.doc.words[na].text, self.doc.words[nb].text))
 
     # =========================================================== tempi (euristica)
     def _timing_events(self, old, new, manual):
@@ -903,11 +940,11 @@ class MainWindow(QMainWindow):
                 w.setChecked(on)
                 w.blockSignals(False)
         runs = int(self.project.timing.get("runs") or 0)
-        self.status("Registrazione dei tempi " + ("ATTIVA" if on else "spenta")
-                    + f" · repliche registrate: {runs}")
+        self.status((_("Registrazione dei tempi ATTIVA") if on else _("Registrazione dei tempi spenta"))
+                    + " · " + _("repliche registrate: {0}").format(runs))
 
     def clear_timing(self):
-        if QMessageBox.question(self, APP_NAME, "Cancellare tutti i tempi registrati per questo copione?") \
+        if QMessageBox.question(self, APP_NAME, _('Cancellare tutti i tempi registrati per questo copione?')) \
                 == QMessageBox.Yes:
             self.timing.clear()
             self._mark_dirty()
@@ -936,7 +973,7 @@ class MainWindow(QMainWindow):
             return
         nb = self.cueing.next_button()
         if nb is None:
-            self.status("Nessun altro pulsante")
+            self.status(_('Nessun altro pulsante'))
             return
         self.press_point(nb["id"])
 
@@ -951,7 +988,7 @@ class MainWindow(QMainWindow):
             return
         st, en = self.point_state(p)
         if not en:
-            self.status(f"«{p.get('label')}» è già passato: disattivato (tasto destro › Riattiva)")
+            self.status(_('«{0}» è già passato: disattivato (tasto destro › Riattiva)').format(p.get('label')))
             return
         sent, errors = send_commands(p.get("commands"), self.project.targets)
         if not self.cueing.passed(p):            # premuto prima che il parlato ci arrivi: l'evento è adesso
@@ -962,12 +999,12 @@ class MainWindow(QMainWindow):
         if errors:
             self.status("⚠ " + " · ".join(errors))
         else:
-            self.status(f"▶ {p.get('label')}: " + (" · ".join(sent) if sent else "nessun comando"))
+            self.status(f"▶ {p.get('label')}: " + (" · ".join(sent) if sent else _("nessun comando")))
 
     def add_point(self, word, kind):
         p = new_point(word, kind)
         if kind == "button":
-            p["label"] = f"Pulsante {sum(1 for x in self.project.points if x['kind'] == 'button') + 1}"
+            p["label"] = _("Pulsante {0}").format(sum(1 for x in self.project.points if x['kind'] == 'button') + 1)
         ctx = " ".join(self.doc.words[i].text for i in self.doc.sentences_before(word, n=1, max_words=12))
         dlg = PointDialog(p, self.project.targets, ctx, self, project=self.project)
         if dlg.exec() == QDialog.Accepted:
@@ -995,7 +1032,7 @@ class MainWindow(QMainWindow):
     def delete_all_points(self):
         if not self.project.points:
             return
-        if QMessageBox.question(self, APP_NAME, f"Eliminare tutti i {len(self.project.points)} punti?") \
+        if QMessageBox.question(self, APP_NAME, _('Eliminare tutti i {0} punti?').format(len(self.project.points))) \
                 == QMessageBox.Yes:
             self.project.points = []
             self._mark_dirty()
@@ -1007,25 +1044,25 @@ class MainWindow(QMainWindow):
             return
         self.cueing.reactivate(p)
         self.refresh_states()
-        self.status(f"«{p.get('label')}» riattivato: si può premere di nuovo")
+        self.status(_('«{0}» riattivato: si può premere di nuovo').format(p.get('label')))
 
     def _point_menu(self, pid, gpos):
         p = self.project.point(pid)
         if p is None:
             return
         m = QMenu(self)
-        m.addAction("Modifica…", lambda: self.edit_point(pid))
+        m.addAction(_('Modifica…'), lambda: self.edit_point(pid))
         if p["kind"] == "button":
             def test():
                 sent, errors = send_commands(p.get("commands"), self.project.targets)
-                self.status(("⚠ " + " · ".join(errors)) if errors else "Prova inviata: " + " · ".join(sent))
-            m.addAction("Prova invio (senza cambiare lo stato)", test)
+                self.status(("⚠ " + " · ".join(errors)) if errors else _("Prova inviata: ") + " · ".join(sent))
+            m.addAction(_('Prova invio (senza cambiare lo stato)'), test)
             st, en = self.point_state(p)
             if not en or st in ("sent", "passed", "closed"):
-                m.addAction("↺ Riattiva questo pulsante", lambda: self.reactivate(pid))
-        m.addAction("Vai qui", lambda: self.jump_to(p["word"]))
+                m.addAction(_('↺ Riattiva questo pulsante'), lambda: self.reactivate(pid))
+        m.addAction(_('Vai qui'), lambda: self.jump_to(p["word"]))
         m.addSeparator()
-        m.addAction("Elimina", lambda: self.delete_point(pid))
+        m.addAction(_('Elimina'), lambda: self.delete_point(pid))
         m.exec(gpos)
 
     def _word_menu(self, a, b, gpos):
@@ -1034,26 +1071,25 @@ class MainWindow(QMainWindow):
         words = list(range(a, b + 1))
         m = QMenu(self)
         last = self.doc.words[b].text
-        m.addAction(f"＋ Pulsante OSC su «{last}»", lambda: self.add_point(b, "button"))
-        m.addAction(f"＋ Annotazione su «{last}»", lambda: self.add_point(b, "note"))
+        m.addAction(_('＋ Pulsante OSC su «{0}»').format(last), lambda: self.add_point(b, "button"))
+        m.addAction(_('＋ Annotazione su «{0}»').format(last), lambda: self.add_point(b, "note"))
         m.addSeparator()
         spoken = self.doc.words[a].spoken
-        what = "la selezione" if a != b else f"«{self.doc.words[a].text}»"
-        m.addAction(("Escludi " if spoken else "Includi ") + what + (" dal riconoscimento" if spoken else
-                                                                     " nel riconoscimento"),
+        what = _("la selezione") if a != b else f"«{self.doc.words[a].text}»"
+        m.addAction((_("Escludi {0} dal riconoscimento") if spoken else _("Includi {0} nel riconoscimento")).format(what),
                     lambda: self._toggle_spoken(words, not spoken))
         if a == b:
             ln = self.doc.lines[self.doc.words[a].line].words
-            m.addAction(("Escludi" if spoken else "Includi") + " tutta la riga",
+            m.addAction(_("Escludi tutta la riga") if spoken else _("Includi tutta la riga"),
                         lambda: self._toggle_spoken(ln, not spoken))
         m.addSeparator()
         zone = self.doc.improv_at(a) or self.doc.improv_at(b)
         if zone:
-            m.addAction("🎭 Togli la parte improvvisata", lambda: self._remove_improv(zone))
+            m.addAction(_('🎭 Togli la parte improvvisata'), lambda: self._remove_improv(zone))
         if a != b or not zone:
-            m.addAction("🎭 Segna come parte improvvisata (non seguire l'ascolto)", lambda: self._add_improv(a, b))
+            m.addAction(_("🎭 Segna come parte improvvisata (non seguire l'ascolto)"), lambda: self._add_improv(a, b))
         m.addSeparator()
-        m.addAction("Riparti da qui", lambda: self.jump_to(b))
+        m.addAction(_('Riparti da qui'), lambda: self.jump_to(b))
         m.exec(gpos)
         self.view.canvas.clear_selection()
 
@@ -1070,7 +1106,7 @@ class MainWindow(QMainWindow):
     def _add_improv(self, a, b):
         self.doc.set_improv(self.doc.improv + [(a, b)])
         self._improv_changed()
-        self.status("Parte improvvisata segnata: lì l'ascolto non segue il parlato e riprende al testo che segue")
+        self.status(_("Parte improvvisata segnata: lì l'ascolto non segue il parlato e riprende al testo che segue"))
 
     def _remove_improv(self, zone):
         self.doc.set_improv([z for z in self.doc.improv if z != zone])
@@ -1100,12 +1136,71 @@ class MainWindow(QMainWindow):
         if words and self.doc is not None:
             counts = self.doc.word_counts()
             occ = sum(c for w, c in counts.items() if w in words)
-            self.status(f"{len(words)} parole del copione ({occ} occorrenze) non sono nel vocabolario del modello: "
-                        "vengono saltate. Modifica › Vocabolario del copione… per dar loro una pronuncia.")
+            self.status(_('{0} parole del copione ({1} occorrenze) non sono nel vocabolario del modello: vengono saltate. Modifica › Vocabolario del copione… per dar loro una pronuncia.').format(len(words), occ))
+
+    # =========================================================== lingue
+    def _fill_lang_menu(self):
+        m = self.lang_menu
+        m.clear()
+        for code in ORDER:
+            info = LANGS[code]
+            a = m.addAction(info["name"] + ("" if installed(code) else "  " + _("(da scaricare)")))
+            a.setCheckable(True)
+            a.setChecked(code == self.project.language)
+            a.triggered.connect(lambda _c=False, c=code: self.set_script_language(c))
+
+    def set_script_language(self, code):
+        """Lingua del copione (salvata nel progetto): sceglie il modello e il motore di riconoscimento."""
+        if code not in LANGS:
+            return
+        if not installed(code):
+            r = QMessageBox.question(self, APP_NAME, _("Il modello vocale per «{0}» non è ancora installato "
+                                                       "(circa {1} MB). Scaricarlo adesso?").format(
+                LANGS[code]["name"], LANGS[code]["mb"]), QMessageBox.Yes | QMessageBox.No)
+            if r == QMessageBox.Yes:
+                self.languages_dialog(code)
+            if not installed(code):
+                return
+        if code == self.project.language:
+            return
+        was = self.listening
+        if was:
+            self.stop_listen()
+        self.project.language = code
+        if self.doc is not None:
+            self.doc.set_language(code)
+        self.unknown_words = set()
+        self._mark_dirty()
+        self._rebuild_aligner()
+        self.status(_("Lingua del copione: {0}").format(LANGS[code]["name"]))
+        if was:
+            self.start_listen()
+
+    def languages_dialog(self, highlight=None):
+        from .ui_languages import LanguagesDialog
+        LanguagesDialog(self, highlight).exec()
+
+    def set_ui_language(self, code):
+        from .i18n import language
+        self.qs.setValue("ui_lang", code)
+        if code == language():
+            return
+        r = QMessageBox.question(self, APP_NAME, _("La nuova lingua dell'interfaccia vale dal prossimo avvio. "
+                                                   "Riavviare adesso?"), QMessageBox.Yes | QMessageBox.No)
+        if r == QMessageBox.Yes and self._confirm_discard():
+            import subprocess
+            import sys
+            self.project.dirty = False
+            path = self.project.path
+            args = [sys.executable] + ([] if getattr(sys, "frozen", False) else ["-m", "scriptfollower"])
+            if os.environ.get("APPIMAGE"):
+                args = [os.environ["APPIMAGE"]]
+            subprocess.Popen(args + ([path] if path else []))
+            self.close()
 
     def vocab_dialog(self):
         if self.doc is None:
-            self.status("Apri prima un copione")
+            self.status(_('Apri prima un copione'))
             return
         from .ui_vocab import VocabDialog
         dlg = VocabDialog(self)
@@ -1119,7 +1214,7 @@ class MainWindow(QMainWindow):
                 if self.listening:               # il vocabolario cambia
                     self.stop_listen()
                     self.start_listen()
-                self.status(f"Pronunce aggiornate: {len(al)} parole")
+                self.status(_('Pronunce aggiornate: {0} parole').format(len(al)))
 
     def reset_overrides(self):
         if self.doc is None:
@@ -1150,13 +1245,13 @@ class MainWindow(QMainWindow):
         cfg["mon_on"] = bool(on)
         self.set_audio(cfg)
         err = self.audio.monitor.error if on else ""
-        self.status(err or ("Preascolto acceso" if on else "Preascolto spento"))
+        self.status(err or (_("Preascolto acceso") if on else _("Preascolto spento")))
 
     def _threshold_from_bar(self, db):
         cfg = dict(self.audio_cfg)
         cfg["threshold_db"] = db
         self.set_audio(cfg)
-        self.status(f"Soglia del gate: {db:.1f} dBFS")
+        self.status(_('Soglia del gate: {0:.1f} dBFS').format(db))
 
     def apply_settings(self, targets, rec, panel=None):
         if panel is not None and panel != self.panel_cfg:
@@ -1179,7 +1274,7 @@ class MainWindow(QMainWindow):
     # =========================================================== simulazione
     def simulate_dialog(self):
         if self.doc is None:
-            self.status("Apri prima un copione")
+            self.status(_('Apri prima un copione'))
             return
         if self.sim is None:
             self.sim = SimulateDialog(self)
@@ -1189,10 +1284,10 @@ class MainWindow(QMainWindow):
     # =========================================================== aiuto
     def help_dialog(self):
         d = QDialog(self)
-        d.setWindowTitle("Guida rapida")
+        d.setWindowTitle(_('Guida rapida'))
         v = QVBoxLayout(d)
         t = QTextBrowser()
-        t.setHtml(HELP)
+        t.setHtml(_(HELP))
         v.addWidget(t)
         bb = QDialogButtonBox(QDialogButtonBox.Close)
         bb.rejected.connect(d.reject)
@@ -1201,10 +1296,7 @@ class MainWindow(QMainWindow):
         d.exec()
 
     def about(self):
-        QMessageBox.about(self, APP_NAME, f"<b>{APP_NAME}</b> {__version__}<br>Segue il parlato e fa scorrere il "
-                          "copione, con pulsanti OSC per CueStage, QLab, SCS, ChamSys e altri.<br><br>"
-                          "Riconoscimento vocale offline: Vosk (Apache 2.0). PDF: PyMuPDF (AGPL).<br>"
-                          "Licenza GPL v3.")
+        QMessageBox.about(self, APP_NAME, _('<b>{0}</b> {1}<br>Segue il parlato e fa scorrere il copione, con pulsanti OSC per CueStage, QLab, SCS, ChamSys e altri.<br><br>Riconoscimento vocale offline: Vosk (Apache 2.0). PDF: PyMuPDF (AGPL).<br>Licenza GPL v3.').format(APP_NAME, __version__))
 
 
 class SimulateDialog(QDialog):
@@ -1213,11 +1305,11 @@ class SimulateDialog(QDialog):
     def __init__(self, mw):
         super().__init__(mw)
         self.mw = mw
-        self.setWindowTitle("Simula il parlato")
+        self.setWindowTitle(_('Simula il parlato'))
         self.setModal(False)
         self.words = []
         v = QVBoxLayout(self)
-        v.addWidget(QLabel("Scrivi ciò che «dice l'attore» e premi Invio (anche con errori o parole saltate):"))
+        v.addWidget(QLabel(_("Scrivi ciò che «dice l'attore» e premi Invio (anche con errori o parole saltate):")))
         self.edit = QLineEdit()
         self.edit.returnPressed.connect(self._typed)
         v.addWidget(self.edit)
@@ -1225,16 +1317,16 @@ class SimulateDialog(QDialog):
         self.speed = QDoubleSpinBox()
         self.speed.setRange(0.5, 6)
         self.speed.setValue(2.5)
-        self.speed.setSuffix(" parole/s")
-        f.addRow("Lettura automatica", self.speed)
+        self.speed.setSuffix(_(' parole/s'))
+        f.addRow(_('Lettura automatica'), self.speed)
         self.err = QSpinBox()
         self.err.setRange(0, 60)
         self.err.setValue(20)
-        self.err.setSuffix(" % di errori")
-        f.addRow("Errori di riconoscimento", self.err)
+        self.err.setSuffix(_(' % di errori'))
+        f.addRow(_('Errori di riconoscimento'), self.err)
         v.addLayout(f)
         h = QHBoxLayout()
-        self.play = QPushButton("▶ Leggi dalla posizione corrente")
+        self.play = QPushButton(_('▶ Leggi dalla posizione corrente'))
         self.play.setCheckable(True)
         self.play.toggled.connect(self._toggle)
         h.addWidget(self.play)
@@ -1262,10 +1354,10 @@ class SimulateDialog(QDialog):
             self.t = d.last_token_at_or_before(self.mw.cueing.pos) + 1 if self.mw.cueing.pos >= 0 else 0
             self.words = []
             self.timer.start(int(1000 / self.speed.value()))
-            self.play.setText("■ Ferma la lettura")
+            self.play.setText(_('■ Ferma la lettura'))
         else:
             self.timer.stop()
-            self.play.setText("▶ Leggi dalla posizione corrente")
+            self.play.setText(_('▶ Leggi dalla posizione corrente'))
 
     def _step(self):
         d = self.mw.doc
@@ -1294,8 +1386,8 @@ HELP = """
 In azzurro le parole <b>escluse dal riconoscimento</b>: didascalie tra parentesi, corsivo e grassetto (titoli,
 luci), righe tipo «MUSICA:», l'indice. Si cambiano con il menu sulla parola.</p>
 <p><b>Clic su una parola</b> (o trascina su più parole): <b>＋ Pulsante OSC</b> o <b>＋ Annotazione</b> su
-quella parola. Ogni pulsante può inviare <b>più comandi OSC</b>, verso uno dei <b>due profili OSC</b>
-(Impostazioni › Profili OSC). I plugin (CueStage, QLab, SCS, ChamSys MagicQ, Generico) offrono i comandi già
+quella parola. Ogni pulsante può inviare <b>più comandi OSC</b>, verso i <b>profili OSC</b>
+(Impostazioni › Profili OSC, anche con la ricerca in rete), e avere note e immagini. I plugin (CueStage, QLab, SCS, ChamSys MagicQ, Generico) offrono i comandi già
 pronti. In preparazione un clic sul pulsante lo modifica; tasto destro = modifica, prova, elimina.</p>
 <p>Salva il progetto (<b>.sfollow</b>) accanto al PDF: contiene pulsanti, note, parole incluse/escluse e i
 profili OSC.</p>
@@ -1316,6 +1408,9 @@ successivi si riattivano. Se scorri a mano, la vista smette di seguire per 5 sec
 <h3>Gate</h3>
 <p>Sotto la soglia al riconoscitore arriva silenzio: il cursore bianco sul meter (anche quello in alto) regola la
 soglia. Meglio una mandata del mixer con le sole voci, senza musica né effetti.</p>
+<h3>Lingue</h3>
+<p><b>Lingua › Lingua del copione</b>: italiano (incluso), inglese, sloveno; i modelli si scaricano da
+<b>Lingua › Lingue del riconoscimento</b>. <b>Lingua › Lingua dell'interfaccia</b>: italiano, English, slovenščina.</p>
 <h3>Senza microfono</h3>
 <p><b>Spettacolo › Simula il parlato</b> (F4): scrivi frasi o lascia leggere il copione con errori casuali.</p>
 """

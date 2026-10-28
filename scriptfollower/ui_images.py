@@ -10,6 +10,7 @@ import shutil
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QImageReader, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from .i18n import _
 
 IMAGE_FILTER = "Immagini (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tif *.tiff);;Tutti i file (*)"
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff")
@@ -123,11 +124,11 @@ class ThumbStrip(QWidget):
             pm = thumbnail(p, self.h)
             if pm.isNull():
                 t = QLabel("⚠")
-                t.setToolTip(f"Immagine non trovata: {p}")
+                t.setToolTip(_('Immagine non trovata: {0}').format(p))
                 t.setStyleSheet("color:#e0a030;")
                 self.lay.addWidget(t)
                 continue
-            t = _Thumb(i, pm, os.path.basename(p) + " — clic per aprirla")
+            t = _Thumb(i, pm, os.path.basename(p) + " — " + _("clic per aprirla"))
             t.clicked.connect(self.opened)
             self.lay.addWidget(t)
         self.lay.addStretch(1)
@@ -155,7 +156,7 @@ class ImageViewer(QDialog):
         bar = QHBoxLayout()
         self.prev = QPushButton("◀")
         self.next = QPushButton("▶")
-        self.full = QPushButton("⛶ Schermo intero")
+        self.full = QPushButton(_('⛶ Schermo intero'))
         self.cap = QLabel()
         self.cap.setStyleSheet("color:#aaa;")
         for b in (self.prev, self.next, self.full):
@@ -182,13 +183,13 @@ class ImageViewer(QDialog):
         self.next.setVisible(n > 1)
         name = os.path.basename(p)
         self.cap.setText(f"{name}" + (f"   ({self.i + 1}/{n})" if n > 1 else "")
-                         + ("" if not self._pm.isNull() else "   — immagine non trovata"))
+                         + ("" if not self._pm.isNull() else "   — " + _("immagine non trovata")))
         self.setWindowTitle(f"{self.title} — {name}" if self.title else name)
         self._fit()
 
     def _fit(self):
         if self._pm.isNull():
-            self.view.setText("Immagine non trovata")
+            self.view.setText(_('Immagine non trovata'))
             return
         self.view.setPixmap(self._pm.scaled(self.view.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 

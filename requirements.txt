@@ -4,3 +4,5 @@ sounddevice>=0.4.6
 python-osc>=1.8
 vosk>=0.3.44         # riconoscimento vocale offline (Kaldi) — la 0.3.45 non ha il pacchetto per macOS
 pymupdf>=1.24,<2     # lettura e disegno del PDF (la 2.0 si porta dietro onnxruntime: +70 MB)
+ctranslate2>=4.4     # Whisper per lo sloveno (senza faster-whisper: il modello si scarica a parte)
+tokenizers>=0.15     # tokenizer di Whisper

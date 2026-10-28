@@ -9,6 +9,7 @@ import time
 from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QPropertyAnimation, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from .i18n import _
 
 MARGIN = 18          # bordo intorno alle pagine
 GAP = 18             # spazio tra le pagine
@@ -75,17 +76,17 @@ class PointWidget(QFrame):
         if self.btn is not None:
             self._btn_text(False)
         else:
-            self.label.setText((p.get("text") or "(annotazione vuota)") + ("  🖼" if p.get("images") else ""))
+            self.label.setText((p.get("text") or _("(annotazione vuota)")) + ("  🖼" if p.get("images") else ""))
         self.state = None
 
     def _btn_text(self, sent):
         p = self.point
         n = len(p.get("commands") or [])
         ni = len(p.get("images") or [])
-        self.btn.setText(("✔ " if sent else "▶ ") + (p.get("label") or "Pulsante") + ("" if n == 1 else f"  ×{n}")
+        self.btn.setText(("✔ " if sent else "▶ ") + (p.get("label") or _("Pulsante")) + ("" if n == 1 else f"  ×{n}")
                          + ("  🖼" if ni else ""))
-        self.btn.setToolTip("\n".join(filter(None, [p.get("text"), f"{n} comandi OSC" if n != 1 else "",
-                                                     f"{ni} immagini" if ni else ""])))
+        self.btn.setToolTip("\n".join(filter(None, [p.get("text"), _("{0} comandi OSC").format(n) if n != 1 else "",
+                                                     _("{0} immagini").format(ni) if ni else ""])))
 
     def apply(self, state, enabled, blink_on, prep):
         key = (state, enabled, blink_on, prep)
@@ -109,7 +110,7 @@ class PointWidget(QFrame):
             # resta sempre cliccabile (anche il tasto destro, per «Riattiva»): lo stato lo dice il colore
             self.btn.setEnabled(True)
             self.btn.setToolTip(self.btn.toolTip().split("\n—")[0] + ("" if prep or enabled else
-                                "\n— già passato: tasto destro › Riattiva"))
+                                "\n— " + _("già passato: tasto destro › Riattiva")))
         else:
             col = self.point.get("color") or "#e0b040"
             if not prep and state == "passed":
@@ -300,8 +301,8 @@ class Canvas(QWidget):
             f = QFont(self.font())
             f.setPointSize(14)
             p.setFont(f)
-            p.drawText(self.rect(), Qt.AlignCenter, "Apri un copione in PDF (File › Apri copione PDF…)\n"
-                                                    "oppure un progetto (File › Apri progetto…)")
+            p.drawText(self.rect(), Qt.AlignCenter, _("Apri un copione in PDF (File › Apri copione PDF…)\n"
+                                                    "oppure un progetto (File › Apri progetto…)"))
             p.end()
             return
         vis = e.rect()

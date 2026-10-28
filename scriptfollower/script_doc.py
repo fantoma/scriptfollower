@@ -10,6 +10,7 @@ import re
 
 from .align import normalize
 from .vocab import default_alias
+from .i18n import _
 
 try:
     import pymupdf
@@ -70,7 +71,7 @@ class ScriptDoc:
         self.path = os.path.abspath(path)
         self.pdf = pymupdf.open(self.path)
         if self.pdf.needs_pass:
-            raise ValueError("il PDF è protetto da password")
+            raise ValueError(_("il PDF è protetto da password"))
         self.sha1 = file_sha1(self.path)
         self.page_sizes = [(p.rect.width, p.rect.height) for p in self.pdf]
         self.words = []
@@ -80,6 +81,7 @@ class ScriptDoc:
         self.overrides = {}              # indice parola -> True/False (parlata o no, scelto a mano)
         self.improv = []                 # parti improvvisate: [(prima parola, ultima parola)], non seguite
         self.aliases = {}                # pronunce: parola del copione -> parole note al modello ("118" -> …)
+        self.lang = "it"                 # lingua del copione (numeri in lettere, motore di riconoscimento)
         self.rebuild()
 
     @property
@@ -207,11 +209,16 @@ class ScriptDoc:
                     out[t] = out.get(t, 0) + 1
         return out
 
+    def set_language(self, lang):
+        if lang != self.lang:
+            self.lang = lang
+            self.rebuild()
+
     def pronounce(self, t):
         """Token che il riconoscitore deve sentire per la parola t del copione."""
         a = self.aliases.get(t)
         if a is None:
-            a = default_alias(t)
+            a = default_alias(t, self.lang)
         return normalize(a) if a else [t]
 
     def excluded_runs(self):

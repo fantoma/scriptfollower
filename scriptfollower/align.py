@@ -11,17 +11,18 @@ import unicodedata
 import numpy as np
 
 _APOS = re.compile(r"[’'`´‘]")
-_NONWORD = re.compile(r"[^0-9a-zàèéìíòóùúäëïöüçñ]+")
 
 
 def normalize(text):
-    """'Cos’è,' -> ['cos', 'è'] · '«Sì!»' -> ['sì'] · 'dell’ospedale' -> ['dell', 'ospedale']"""
+    """'Cos’è,' -> ['cos', 'è'] · '«Sì!»' -> ['sì'] · 'dell’ospedale' -> ['dell', 'ospedale'] · 'Čaša.' -> ['čaša']
+
+    Restano lettere (di qualunque alfabeto: italiano, inglese, sloveno…) e cifre."""
     t = unicodedata.normalize("NFC", (text or "").lower())
     t = _APOS.sub(" ", t)
     t = t.replace("-", " ").replace("–", " ").replace("—", " ")
     out = []
     for part in t.split():
-        w = _NONWORD.sub("", part)
+        w = "".join(ch for ch in part if ch.isalnum())
         if w:
             out.append(w)
     return out

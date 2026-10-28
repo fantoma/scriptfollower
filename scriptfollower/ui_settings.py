@@ -1,17 +1,17 @@
 """Finestra Impostazioni: ingresso audio con gate e meter, i due profili OSC, il riconoscimento vocale."""
 import copy
-import threading
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
                                QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
-                               QProgressBar, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
+                               QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 from .audio_input import audio_settings, list_input_devices, list_output_devices, parse_channels
 from .osc import clean_targets, commands_using, new_target, plugin_order, plugins
-from .recognizer import MODEL_NAME, MODEL_SIZE_MB, download_model, is_model, list_models, model_dirs
-from .system import data_dir_label
+from .languages import LANGS, download_dir, find_model
+from .recognizer import is_model, list_models, model_dirs
 from .ui_meter import GateMeter
+from .i18n import _
 
 REC_DEFAULTS = {"model": "", "grammar": True, "ahead": 260, "min_score": 5.0, "anchor": 35}
 
@@ -43,18 +43,13 @@ def rec_settings(d):
     return s
 
 
-class _Relay(QObject):
-    progress = Signal(int, int)
-    done = Signal(str, str)
-
-
 class SettingsDialog(QDialog):
     """Le impostazioni audio valgono subito (si vede il meter e si sente il gate); «Annulla» le rimette."""
 
     def __init__(self, mw, page=0):
         super().__init__(mw)
         self.mw = mw
-        self.setWindowTitle("Impostazioni")
+        self.setWindowTitle(_('Impostazioni'))
         self.orig_audio = copy.deepcopy(mw.audio_cfg)
         self._loading = True
         v = QVBoxLayout(self)
@@ -80,42 +75,42 @@ class SettingsDialog(QDialog):
         w = QWidget()
         v = QVBoxLayout(w)
         a = audio_settings(self.mw.audio_cfg)
-        gi = QGroupBox("Ingresso di ascolto")
+        gi = QGroupBox(_('Ingresso di ascolto'))
         fi = QFormLayout(gi)
         self.dev = QComboBox()
-        self.dev.addItem("Predefinita di sistema", "")
+        self.dev.addItem(_('Predefinita di sistema'), "")
         for d in list_input_devices():
-            self.dev.addItem(f"{d['name']}  [{d['hostapi']}] — {d['max_ch']} canali", d["id"])
+            self.dev.addItem(_('{0}  [{1}] — {2} canali').format(d['name'], d['hostapi'], d['max_ch']), d["id"])
         i = self.dev.findData(a["device"])
         if i < 0:
-            self.dev.addItem(f"{a['device'].split('|', 1)[-1]} (non collegata)", a["device"])
+            self.dev.addItem(_('{0} (non collegata)').format(a['device'].split('|', 1)[-1]), a["device"])
             i = self.dev.count() - 1
         self.dev.setCurrentIndex(i)
         self.dev.currentIndexChanged.connect(self._dev_changed)
-        fi.addRow("Scheda audio", self.dev)
+        fi.addRow(_('Scheda audio'), self.dev)
         self.ch = QSpinBox()
         self.ch.setRange(1, 64)
         self._fit_channels()
         self.ch.setValue(a["channel"])
         self.ch.valueChanged.connect(self._audio_changed)
-        self.ch.setToolTip("Canale della scheda da ascoltare: meglio una mandata aux del mixer con le sole voci")
-        fi.addRow("Canale di ascolto", self.ch)
+        self.ch.setToolTip(_('Canale della scheda da ascoltare: meglio una mandata aux del mixer con le sole voci'))
+        fi.addRow(_('Canale di ascolto'), self.ch)
         self.gain = QDoubleSpinBox()
         self.gain.setRange(-12, 30)
         self.gain.setDecimals(1)
-        self.gain.setSuffix(" dB")
+        self.gain.setSuffix(_(' dB'))
         self.gain.setValue(a["gain_db"])
         self.gain.valueChanged.connect(self._audio_changed)
-        self.gain.setToolTip("Guadagno digitale prima del meter, del gate e del riconoscitore")
-        fi.addRow("Guadagno", self.gain)
-        rescan = QPushButton("Rileggi le schede collegate")
+        self.gain.setToolTip(_('Guadagno digitale prima del meter, del gate e del riconoscitore'))
+        fi.addRow(_('Guadagno'), self.gain)
+        rescan = QPushButton(_('Rileggi le schede collegate'))
         rescan.clicked.connect(self._rescan)
         fi.addRow("", rescan)
         v.addWidget(gi)
 
-        gg = QGroupBox("Gate")
+        gg = QGroupBox(_('Gate'))
         gv = QVBoxLayout(gg)
-        self.gate_on = QCheckBox("Usa il gate: sotto la soglia al riconoscitore arriva silenzio")
+        self.gate_on = QCheckBox(_('Usa il gate: sotto la soglia al riconoscitore arriva silenzio'))
         self.gate_on.setChecked(a["gate_on"])
         self.gate_on.toggled.connect(self._audio_changed)
         gv.addWidget(self.gate_on)
@@ -124,8 +119,7 @@ class SettingsDialog(QDialog):
         self.meter.gate_on = a["gate_on"]
         self.meter.thresholdChanged.connect(self._thr_from_meter)
         gv.addWidget(self.meter)
-        hint = QLabel("Trascina il cursore bianco sul meter per la soglia. Barra superiore: livello "
-                      "dell'ingresso (grigia quando il gate è chiuso). Barra blu: ciò che arriva al riconoscitore.")
+        hint = QLabel(_("Trascina il cursore bianco sul meter per la soglia. Barra superiore: livello dell'ingresso (grigia quando il gate è chiuso). Barra blu: ciò che arriva al riconoscitore."))
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#888; font-size:11px;")
         gv.addWidget(hint)
@@ -133,44 +127,43 @@ class SettingsDialog(QDialog):
         self.thr = QDoubleSpinBox()
         self.thr.setRange(-70, 0)
         self.thr.setDecimals(1)
-        self.thr.setSuffix(" dBFS")
+        self.thr.setSuffix(_(' dBFS'))
         self.thr.setValue(a["threshold_db"])
         self.thr.valueChanged.connect(self._thr_from_box)
-        fg.addRow("Soglia", self.thr)
+        fg.addRow(_('Soglia'), self.thr)
         self.hold = QSpinBox()
         self.hold.setRange(0, 3000)
         self.hold.setSingleStep(50)
-        self.hold.setSuffix(" ms")
+        self.hold.setSuffix(_(' ms'))
         self.hold.setValue(a["hold_ms"])
-        self.hold.setToolTip("Quanto resta aperto dopo che il segnale scende sotto la soglia "
-                             "(non taglia le fine parola e le pause brevi)")
+        self.hold.setToolTip(_('Quanto resta aperto dopo che il segnale scende sotto la soglia (non taglia le fine parola e le pause brevi)'))
         self.hold.valueChanged.connect(self._audio_changed)
-        fg.addRow("Hold", self.hold)
+        fg.addRow(_('Hold'), self.hold)
         gv.addLayout(fg)
         v.addWidget(gg)
 
-        gp = QGroupBox("Preascolto (cuffia)")
+        gp = QGroupBox(_('Preascolto (cuffia)'))
         fp = QFormLayout(gp)
-        self.mon_on = QCheckBox("Ascolta in cuffia il canale d'ingresso su una scheda dedicata")
+        self.mon_on = QCheckBox(_("Ascolta in cuffia il canale d'ingresso su una scheda dedicata"))
         self.mon_on.setChecked(a["mon_on"])
         self.mon_on.toggled.connect(self._audio_changed)
         fp.addRow(self.mon_on)
         self.mon_dev = QComboBox()
         self._fill_mon_devices(a["mon_device"])
         self.mon_dev.currentIndexChanged.connect(self._mon_dev_changed)
-        fp.addRow("Scheda in uscita", self.mon_dev)
+        fp.addRow(_('Scheda in uscita'), self.mon_dev)
         self.mon_ch = QComboBox()
         self._fill_mon_channels(a["mon_channels"])
         self.mon_ch.currentIndexChanged.connect(self._audio_changed)
-        fp.addRow("Canali", self.mon_ch)
+        fp.addRow(_('Canali'), self.mon_ch)
         self.mon_db = QDoubleSpinBox()
         self.mon_db.setRange(-60, 12)
         self.mon_db.setDecimals(1)
-        self.mon_db.setSuffix(" dB")
+        self.mon_db.setSuffix(_(' dB'))
         self.mon_db.setValue(a["mon_db"])
         self.mon_db.valueChanged.connect(self._audio_changed)
-        fp.addRow("Volume", self.mon_db)
-        self.mon_post = QCheckBox("Dopo il gate (si sente esattamente ciò che arriva al riconoscitore)")
+        fp.addRow(_('Volume'), self.mon_db)
+        self.mon_post = QCheckBox(_('Dopo il gate (si sente esattamente ciò che arriva al riconoscitore)'))
         self.mon_post.setChecked(a["mon_post"])
         self.mon_post.toggled.connect(self._audio_changed)
         fp.addRow(self.mon_post)
@@ -189,7 +182,7 @@ class SettingsDialog(QDialog):
         sa.setWidgetResizable(True)
         sa.setFrameShape(QFrame.NoFrame)
         sa.setWidget(w)
-        self.tabs.addTab(sa, "Audio")
+        self.tabs.addTab(sa, _('Audio'))
 
     def _fit_channels(self):
         dev_id = self.dev.currentData() or ""
@@ -210,9 +203,9 @@ class SettingsDialog(QDialog):
         cur = self.dev.currentData()
         self._loading = True
         self.dev.clear()
-        self.dev.addItem("Predefinita di sistema", "")
+        self.dev.addItem(_('Predefinita di sistema'), "")
         for d in list_input_devices():
-            self.dev.addItem(f"{d['name']}  [{d['hostapi']}] — {d['max_ch']} canali", d["id"])
+            self.dev.addItem(_('{0}  [{1}] — {2} canali').format(d['name'], d['hostapi'], d['max_ch']), d["id"])
         self.dev.setCurrentIndex(max(0, self.dev.findData(cur)))
         self._fill_mon_devices(self.mon_dev.currentData() or "")
         self._fill_mon_channels(self.mon_ch.currentData() or "1-2")
@@ -223,12 +216,12 @@ class SettingsDialog(QDialog):
     def _fill_mon_devices(self, cur):
         self.mon_dev.blockSignals(True)
         self.mon_dev.clear()
-        self.mon_dev.addItem("Predefinita di sistema", "")
+        self.mon_dev.addItem(_('Predefinita di sistema'), "")
         for d in list_output_devices():
-            self.mon_dev.addItem(f"{d['name']}  [{d['hostapi']}] — {d['max_ch']} canali", d["id"])
+            self.mon_dev.addItem(_('{0}  [{1}] — {2} canali').format(d['name'], d['hostapi'], d['max_ch']), d["id"])
         i = self.mon_dev.findData(cur)
         if i < 0:
-            self.mon_dev.addItem(f"{cur.split('|', 1)[-1]} (non collegata)", cur)
+            self.mon_dev.addItem(_('{0} (non collegata)').format(cur.split('|', 1)[-1]), cur)
             i = self.mon_dev.count() - 1
         self.mon_dev.setCurrentIndex(i)
         self.mon_dev.blockSignals(False)
@@ -243,9 +236,9 @@ class SettingsDialog(QDialog):
         self.mon_ch.blockSignals(True)
         self.mon_ch.clear()
         for c in range(1, n, 2):
-            self.mon_ch.addItem(f"{c}-{c + 1} (stereo)", f"{c}-{c + 1}")
+            self.mon_ch.addItem(_('{0}-{1} (stereo)').format(c, c + 1), f"{c}-{c + 1}")
         for c in range(1, n + 1):
-            self.mon_ch.addItem(f"{c} (mono)", str(c))
+            self.mon_ch.addItem(_('{0} (mono)').format(c), str(c))
         cur = "-".join(str(c) for c in parse_channels(cur))
         if self.mon_ch.findData(cur) < 0:
             self.mon_ch.addItem(cur, cur)
@@ -299,19 +292,15 @@ class SettingsDialog(QDialog):
     def _build_osc(self):
         w = QWidget()
         v = QVBoxLayout(w)
-        intro = QLabel("Profili di destinazione per i pulsanti (quanti ne servono). Il <b>plugin</b> dice che cosa "
-                       "c'è dall'altra parte (CueStage, QLab, SCS, ChamSys…) e offre i suoi comandi già pronti nei "
-                       "pulsanti; con «Generico» scrivi indirizzo e argomenti a mano. I profili sono salvati nel "
-                       "progetto.")
+        intro = QLabel(_("Profili di destinazione per i pulsanti (quanti ne servono). Il <b>plugin</b> dice che cosa c'è dall'altra parte (CueStage, QLab, SCS, ChamSys…) e offre i suoi comandi già pronti nei pulsanti; con «Generico» scrivi indirizzo e argomenti a mano. I profili sono salvati nel progetto."))
         intro.setWordWrap(True)
         v.addWidget(intro)
         row = QHBoxLayout()
-        add = QPushButton("＋ Aggiungi profilo OSC")
+        add = QPushButton(_('＋ Aggiungi profilo OSC'))
         add.clicked.connect(lambda: self._add_target())
         row.addWidget(add)
-        scan = QPushButton("🔍 Cerca in rete…")
-        scan.setToolTip("Cerca CueStage, QLab, console ChamSys e porte OSC aperte nella rete locale, "
-                        "e configura i profili")
+        scan = QPushButton(_('🔍 Cerca in rete…'))
+        scan.setToolTip(_('Cerca CueStage, QLab, console ChamSys e porte OSC aperte nella rete locale, e configura i profili'))
         scan.clicked.connect(self._scan)
         row.addWidget(scan)
         row.addStretch(1)
@@ -329,7 +318,7 @@ class SettingsDialog(QDialog):
         self.t_widgets = []
         for t in clean_targets(self.mw.project.targets):
             self._add_target(t)
-        self.tabs.addTab(w, "OSC")
+        self.tabs.addTab(w, _('OSC'))
 
     def _add_target(self, t=None):
         if t is None:
@@ -341,30 +330,30 @@ class SettingsDialog(QDialog):
         title.setStyleSheet("font-weight:bold;")
         head.addWidget(title)
         head.addStretch(1)
-        rm = QPushButton("Elimina profilo")
+        rm = QPushButton(_('Elimina profilo'))
         head.addWidget(rm)
         f.addRow(head)
         name = QLineEdit(t["name"])
-        f.addRow("Nome", name)
+        f.addRow(_('Nome'), name)
         plug = QComboBox()
         for pid in plugin_order():
-            plug.addItem(plugins()[pid]["name"], pid)
+            plug.addItem(_(plugins()[pid]["name"]), pid)
         plug.setCurrentIndex(max(0, plug.findData(t["plugin"])))
-        f.addRow("Plugin", plug)
+        f.addRow(_('Plugin'), plug)
         hr = QHBoxLayout()
         host = QLineEdit(t["host"])
-        host.setPlaceholderText("indirizzo IP, es. 192.168.1.50 (127.0.0.1 = questo computer)")
+        host.setPlaceholderText(_('indirizzo IP, es. 192.168.1.50 (127.0.0.1 = questo computer)'))
         hr.addWidget(host, 1)
         port = QSpinBox()
         port.setRange(1, 65535)
         port.setValue(int(t["port"]))
-        hr.addWidget(QLabel("Porta"))
+        hr.addWidget(QLabel(_('Porta')))
         hr.addWidget(port)
-        f.addRow("Indirizzo", hr)
+        f.addRow(_('Indirizzo'), hr)
         note = QPlainTextEdit(t["note"])
-        note.setPlaceholderText("Appunto del profilo (es. «MagicQ in regia, playback 1 = scena»)")
+        note.setPlaceholderText(_('Appunto del profilo (es. «MagicQ in regia, playback 1 = scena»)'))
         note.setFixedHeight(54)
-        f.addRow("Appunto", note)
+        f.addRow(_('Appunto'), note)
         pnotes = QLabel()
         pnotes.setWordWrap(True)
         pnotes.setStyleSheet("color:#999; font-size:11px;")
@@ -381,17 +370,15 @@ class SettingsDialog(QDialog):
 
     def _renumber(self):
         for i, r in enumerate(self.t_widgets):
-            r["title"].setText(f"Profilo OSC {i + 1}")
+            r["title"].setText(_('Profilo OSC {0}').format(i + 1))
             r["rm"].setEnabled(len(self.t_widgets) > 1)
 
     def _remove_target(self, row):
         from PySide6.QtWidgets import QMessageBox
         n = commands_using(self.mw.project.points, row["id"])
         if n:
-            r = QMessageBox.question(self, "Elimina profilo",
-                                     f"Il profilo «{row['name'].text()}» è usato da {n} comandi dei pulsanti: "
-                                     "dopo l'eliminazione quei comandi non verranno più inviati (li vedrai segnati "
-                                     "con ⚠ e potrai assegnarli a un altro profilo). Eliminarlo?")
+            r = QMessageBox.question(self, _('Elimina profilo'),
+                                     _("Il profilo «{0}» è usato da {1} comandi dei pulsanti: dopo l'eliminazione quei comandi non verranno più inviati (li vedrai segnati con ⚠ e potrai assegnarli a un altro profilo). Eliminarlo?").format(row['name'].text(), n))
             if r != QMessageBox.Yes:
                 return
         self.t_widgets.remove(row)
@@ -402,13 +389,13 @@ class SettingsDialog(QDialog):
     def _plugin_changed(self, row, first=False):
         pid = row["plugin"].currentData()
         p = plugins().get(pid) or {}
-        row["pnotes"].setText(p.get("notes", ""))
+        row["pnotes"].setText(_(p.get("notes", "")))
         if not first:
             old = plugins().get(row["last_plugin"]) or {}
             if row["port"].value() == int(old.get("port") or 0):
                 row["port"].setValue(int(p.get("port") or 8000))
             if row["name"].text().strip() in ("", old.get("name", "")) or \
-                    row["name"].text().strip().startswith("Profilo "):
+                    row["name"].text().strip().startswith(("Profilo ", _("Profilo {0}").split("{")[0])):
                 row["name"].setText(p.get("name", "").split(" (")[0])
         row["last_plugin"] = pid
 
@@ -435,7 +422,7 @@ class SettingsDialog(QDialog):
             row["port"].setValue(int(found["port"]))
             row["name"].setText(found["name"])
         if not row["note"].toPlainText().strip():
-            row["note"].setPlainText(f"Trovato in rete: {found['how']}")
+            row["note"].setPlainText(_('Trovato in rete: {0}').format(found['how']))
         self.tabs.setCurrentIndex(1)
         return row
 
@@ -444,33 +431,29 @@ class SettingsDialog(QDialog):
         w = QWidget()
         v = QVBoxLayout(w)
         r = rec_settings(self.mw.rec_cfg)
-        gm = QGroupBox("Modello vocale (Vosk, offline)")
+        gm = QGroupBox(_("Lingua e modello vocale (offline)"))
         f = QFormLayout(gm)
+        lang = self.mw.project.language
+        lr = QHBoxLayout()
+        self.lang_lbl = QLabel()
+        lr.addWidget(self.lang_lbl, 1)
+        langs = QPushButton(_("Lingue del riconoscimento…"))
+        langs.clicked.connect(self._languages)
+        lr.addWidget(langs)
+        f.addRow(_("Lingua del copione"), lr)
         mr = QHBoxLayout()
         self.model = QComboBox()
-        self.model.addItem("Automatico (il primo modello italiano trovato)", "")
-        for name, path in list_models():
-            self.model.addItem(f"{name}  —  {path}", path)
-        if r["model"] and self.model.findData(r["model"]) < 0:
-            self.model.addItem(r["model"], r["model"])
-        self.model.setCurrentIndex(max(0, self.model.findData(r["model"])))
         mr.addWidget(self.model, 1)
-        pick = QPushButton("Scegli cartella…")
+        pick = QPushButton(_('Scegli cartella…'))
         pick.clicked.connect(self._pick_model)
         mr.addWidget(pick)
-        f.addRow("Modello", mr)
-        dl = QHBoxLayout()
-        self.dl_btn = QPushButton(f"Scarica il modello italiano ({MODEL_SIZE_MB} MB)")
-        self.dl_btn.clicked.connect(self._download)
-        dl.addWidget(self.dl_btn)
-        self.dl_bar = QProgressBar()
-        self.dl_bar.setVisible(False)
-        dl.addWidget(self.dl_bar, 1)
-        f.addRow("", dl)
-        where = QLabel("Cartelle in cui si cercano i modelli (la prima che esiste vince):<br>"
-                       + "<br>".join(f"· {d}" for d in model_dirs())
-                       + f"<br>Il download va in {data_dir_label('models')}. Per una copia davvero portable "
-                         "metti la cartella del modello in «models» accanto al programma.")
+        f.addRow(_('Modello'), mr)
+        self._rec_pref = r["model"]
+        self._fill_models()
+        where = QLabel(_("Cartelle in cui si cercano i modelli (la prima che esiste vince):") + "<br>"
+                       + "<br>".join(f"· {d}" for d in model_dirs()) + "<br>"
+                       + _("I download vanno in {0}: accanto al programma se si può scrivere lì (uso portable), "
+                           "altrimenti nella cartella dei dati.").format(download_dir()))
         where.setWordWrap(True)
         where.setStyleSheet("color:#888; font-size:11px;")
         where.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -478,92 +461,79 @@ class SettingsDialog(QDialog):
         self.dl_msg = QLabel()
         self.dl_msg.setWordWrap(True)
         f.addRow(self.dl_msg)
+        self._lang_state(lang)
         v.addWidget(gm)
-        ga = QGroupBox("Inseguimento del copione")
+        ga = QGroupBox(_('Inseguimento del copione'))
         fa = QFormLayout(ga)
-        self.grammar = QCheckBox("Limita il vocabolario alle parole del copione (consigliato con i modelli «small»)")
+        self.grammar = QCheckBox(_('Limita il vocabolario alle parole del copione (consigliato con i modelli «small»)'))
         self.grammar.setChecked(r["grammar"])
+        self.grammar.setEnabled(LANGS[self.mw.project.language]["engine"] == "vosk")
         fa.addRow(self.grammar)
         self.ahead = QSpinBox()
         self.ahead.setRange(60, 2000)
         self.ahead.setSingleStep(20)
-        self.ahead.setSuffix(" parole")
+        self.ahead.setSuffix(_(' parole'))
         self.ahead.setValue(r["ahead"])
-        self.ahead.setToolTip("Quanto avanti si cerca normalmente. I salti più lunghi (tagli, scene saltate) si "
-                              "riconoscono comunque in tutto il copione, ma servono più parole sicure.")
-        fa.addRow("Finestra di ricerca in avanti", self.ahead)
+        self.ahead.setToolTip(_('Quanto avanti si cerca normalmente. I salti più lunghi (tagli, scene saltate) si riconoscono comunque in tutto il copione, ma servono più parole sicure.'))
+        fa.addRow(_('Finestra di ricerca in avanti'), self.ahead)
         self.min_score = QDoubleSpinBox()
         self.min_score.setRange(2, 20)
         self.min_score.setDecimals(1)
         self.min_score.setValue(r["min_score"])
-        self.min_score.setToolTip("Più alto = si sposta solo con più parole riconosciute di fila (più sicuro, "
-                                  "ma più in ritardo). 5 ≈ tre parole giuste.")
-        fa.addRow("Sicurezza richiesta", self.min_score)
+        self.min_score.setToolTip(_('Più alto = si sposta solo con più parole riconosciute di fila (più sicuro, ma più in ritardo). 5 ≈ tre parole giuste.'))
+        fa.addRow(_('Sicurezza richiesta'), self.min_score)
         self.anchor = QSpinBox()
         self.anchor.setRange(10, 70)
         self.anchor.setSuffix(" %")
         self.anchor.setValue(r["anchor"])
-        self.anchor.setToolTip("Altezza nella finestra a cui si tiene la riga corrente durante lo scorrimento")
-        fa.addRow("Riga corrente a", self.anchor)
+        self.anchor.setToolTip(_('Altezza nella finestra a cui si tiene la riga corrente durante lo scorrimento'))
+        fa.addRow(_('Riga corrente a'), self.anchor)
         v.addWidget(ga)
         v.addStretch(1)
-        self.tabs.addTab(w, "Riconoscimento")
-        self.relay = _Relay()
-        self.relay.progress.connect(self._dl_progress)
-        self.relay.done.connect(self._dl_done)
+        self.tabs.addTab(w, _('Riconoscimento'))
+
+    def _fill_models(self):
+        cur = self.model.currentData() if self.model.count() else self._rec_pref
+        self.model.clear()
+        self.model.addItem(_("Automatico (secondo la lingua del copione)"), "")
+        for name, path in list_models():
+            self.model.addItem(f"{name}  —  {path}", path)
+        if cur and self.model.findData(cur) < 0:
+            self.model.addItem(cur, cur)
+        self.model.setCurrentIndex(max(0, self.model.findData(cur or "")))
+
+    def _lang_state(self, lang):
+        info = LANGS[lang]
+        ok = bool(find_model(lang))
+        self.lang_lbl.setText(f"<b>{info['name']}</b> — " + ("Vosk" if info["engine"] == "vosk" else "Whisper")
+                              + " · " + (_("modello installato") if ok else _("modello da scaricare")))
+        self.grammar.setEnabled(info["engine"] == "vosk") if hasattr(self, "grammar") else None
+
+    def _languages(self):
+        from .ui_languages import LanguagesDialog
+        LanguagesDialog(self, self.mw.project.language).exec()
+        self._fill_models()
+        self._lang_state(self.mw.project.language)
 
     def _pick_model(self):
-        d = QFileDialog.getExistingDirectory(self, "Cartella del modello Vosk")
+        d = QFileDialog.getExistingDirectory(self, _('Cartella del modello vocale'))
         if not d:
             return
         if not is_model(d):
-            self.dl_msg.setText("Questa cartella non sembra un modello Vosk (manca «am» o «conf/model.conf»).")
+            self.dl_msg.setText(_("Questa cartella non sembra un modello vocale (Vosk: «am» o «conf/model.conf»; "
+                                  "Whisper: «model.bin» e «tokenizer.json»)."))
             self.dl_msg.setStyleSheet("color:#e66;")
             return
         if self.model.findData(d) < 0:
             self.model.addItem(d, d)
         self.model.setCurrentIndex(self.model.findData(d))
 
-    def _download(self):
-        self.dl_btn.setEnabled(False)
-        self.dl_bar.setVisible(True)
-        self.dl_bar.setRange(0, 0)
-        self.dl_msg.setText(f"Scarico {MODEL_NAME}…")
-        self.dl_msg.setStyleSheet("color:#999;")
-
-        def run():
-            try:
-                path = download_model(lambda a, b: self.relay.progress.emit(a, b))
-                self.relay.done.emit(path, "")
-            except Exception as e:  # noqa: BLE001
-                self.relay.done.emit("", str(e))
-        threading.Thread(target=run, daemon=True).start()
-
-    def _dl_progress(self, done, total):
-        if total:
-            self.dl_bar.setRange(0, total)
-            self.dl_bar.setValue(done)
-
-    def _dl_done(self, path, err):
-        self.dl_btn.setEnabled(True)
-        self.dl_bar.setVisible(False)
-        if err:
-            self.dl_msg.setText(f"Download non riuscito: {err}. Puoi scaricarlo a mano da alphacephei.com/vosk/models "
-                                "ed estrarlo nella cartella «models».")
-            self.dl_msg.setStyleSheet("color:#e66;")
-            return
-        self.dl_msg.setText(f"Modello pronto: {path}")
-        self.dl_msg.setStyleSheet("color:#6c6;")
-        if self.model.findData(path) < 0:
-            self.model.addItem(path, path)
-        self.model.setCurrentIndex(self.model.findData(path))
-
     # ------------------------------------------------------------ riquadro «Prossimo evento»
     def _build_panel(self):
         w = QWidget()
         v = QVBoxLayout(w)
         ps = panel_settings(self.mw.panel_cfg)
-        g = QGroupBox("Anteprima nel riquadro «Prossimo evento»")
+        g = QGroupBox(_('Anteprima nel riquadro «Prossimo evento»'))
         f = QFormLayout(g)
         row = QHBoxLayout()
         self.pv_count = QSpinBox()
@@ -574,21 +544,19 @@ class SettingsDialog(QDialog):
         self._pv_unit_changed()
         self.pv_count.setValue(ps["count"])
         self.pv_unit.currentIndexChanged.connect(self._pv_unit_changed)
-        row.addWidget(QLabel("Mostra le ultime"))
+        row.addWidget(QLabel(_('Mostra le ultime')))
         row.addWidget(self.pv_count)
         row.addWidget(self.pv_unit)
-        row.addWidget(QLabel("prima del pulsante"))
+        row.addWidget(QLabel(_('prima del pulsante')))
         row.addStretch(1)
         f.addRow(row)
-        hint = QLabel("<b>frasi</b>: le frasi dette, fino al punto del pulsante · <b>righe</b>: le righe del copione "
-                      "così come sono impaginate, didascalie comprese · <b>parole</b>: solo le ultime parole dette "
-                      "(il riquadro più compatto). Le parole già dette diventano gialle, quella del pulsante è verde.")
+        hint = QLabel(_('<b>frasi</b>: le frasi dette, fino al punto del pulsante · <b>righe</b>: le righe del copione così come sono impaginate, didascalie comprese · <b>parole</b>: solo le ultime parole dette (il riquadro più compatto). Le parole già dette diventano gialle, quella del pulsante è verde.'))
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#888; font-size:11px;")
         f.addRow(hint)
         v.addWidget(g)
         v.addStretch(1)
-        self.tabs.addTab(w, "Riquadro")
+        self.tabs.addTab(w, _('Riquadro'))
 
     def _pv_unit_changed(self, *_a):
         unit = self.pv_unit.currentData()

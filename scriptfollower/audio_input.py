@@ -11,6 +11,7 @@ import threading
 import numpy as np
 
 from .system import IS_WIN
+from .i18n import _
 
 try:
     import sounddevice as sd
@@ -192,20 +193,20 @@ class Monitor:
     def open(self, dev_id, chans, in_rate):
         self.error = ""
         if sd is None:
-            self.error = "PortAudio non disponibile"
+            self.error = _("PortAudio non disponibile")
             return False
         dev = None
         if dev_id:
             dev = next((d for d in list_output_devices() if d["id"] == dev_id), None)
             if dev is None:
-                self.error = f"Scheda del preascolto «{dev_id.split('|', 1)[-1]}» non trovata"
+                self.error = _("Scheda del preascolto «{0}» non trovata").format(dev_id.split('|', 1)[-1])
                 return False
         try:
             max_ch = dev["max_ch"] if dev else int(sd.query_devices(kind="output").get("max_output_channels") or 2)
         except Exception:  # noqa: BLE001
             max_ch = 2
         if max(chans) > max_ch:
-            self.error = f"La scheda del preascolto ha {max_ch} canali: il canale {max(chans)} non esiste"
+            self.error = _("La scheda del preascolto ha {0} canali: il canale {1} non esiste").format(max_ch, max(chans))
             return False
         self.cols = [c - 1 for c in chans]
         n = max(chans)
@@ -225,7 +226,7 @@ class Monitor:
             except Exception as e:  # noqa: BLE001
                 self.stream = None
                 err = e
-        self.error = f"Impossibile aprire il preascolto: {err}"
+        self.error = _("Impossibile aprire il preascolto: {0}").format(err)
         return False
 
     def close(self):
@@ -310,12 +311,12 @@ class AudioInput:
         self.close()
         self.error = ""
         if sd is None:
-            self.error = "PortAudio non disponibile: nessun ingresso audio"
+            self.error = _("PortAudio non disponibile: nessun ingresso audio")
             return False
         dev_id = self.cfg.get("device") or ""
         dev = find_input(dev_id) if dev_id else None
         if dev_id and dev is None:
-            self.error = f"Scheda in ingresso «{dev_id.split('|', 1)[-1]}» non trovata"
+            self.error = _("Scheda in ingresso «{0}» non trovata").format(dev_id.split('|', 1)[-1])
             return False
         try:
             if dev is None:
@@ -327,7 +328,7 @@ class AudioInput:
                 self.name = dev["name"]
             ch = int(self.cfg.get("channel") or 1)
             if ch > max_ch:
-                self.error = f"«{self.name}» ha {max_ch} canali in ingresso: il canale {ch} non esiste"
+                self.error = _("«{0}» ha {1} canali in ingresso: il canale {2} non esiste").format(self.name, max_ch, ch)
                 return False
             self.n_ch = max_ch
             err = None
@@ -349,7 +350,7 @@ class AudioInput:
             raise err
         except Exception as e:  # noqa: BLE001
             self.stream = None
-            self.error = f"Impossibile aprire l'ingresso «{self.name}»: {e}"
+            self.error = _("Impossibile aprire l'ingresso «{0}»: {1}").format(self.name, e)
             return False
 
     def close(self):

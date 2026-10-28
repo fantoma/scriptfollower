@@ -17,6 +17,7 @@ import re
 import threading
 
 from .system import data_dir
+from .i18n import _
 
 try:
     from pythonosc.udp_client import SimpleUDPClient
@@ -73,7 +74,7 @@ def new_target(targets, plugin="generico", host="", port=None, name=None):
         k += 1
     p = plugins().get(plugin) or {}
     return {"id": f"p{k}", "name": name or (p.get("name", "").split(" (")[0] if plugin != "generico"
-                                            else f"Profilo {k}"),
+                                            else _("Profilo {0}").format(k)),
             "host": host, "port": int(port or p.get("port") or 8000), "note": "", "plugin": plugin}
 
 
@@ -112,11 +113,11 @@ def find_target(command, targets):
         for t in targets:
             if t["id"] == tid:
                 return t
-        raise KeyError("il profilo OSC di questo comando è stato eliminato")
+        raise KeyError(_('il profilo OSC di questo comando è stato eliminato'))
     i = int(command.get("target") or 0)
     if 0 <= i < len(targets):
         return targets[i]
-    raise KeyError(f"il profilo OSC n. {i + 1} non esiste più")
+    raise KeyError(_('il profilo OSC n. {0} non esiste più').format(i + 1))
 
 
 def migrate_commands(points, targets):
@@ -209,7 +210,7 @@ def render(command, targets):
     else:
         c = find_command(t["plugin"], cid)
         if c is None:
-            raise KeyError(f"comando «{cid}» non presente nel plugin «{t['plugin']}» del profilo «{t['name']}»")
+            raise KeyError(_('comando «{0}» non presente nel plugin «{1}» del profilo «{2}»').format(cid, t['plugin'], t['name']))
         vals = param_values(c, command.get("values"))
         address = c["address"].format(**vals)
         args = " ".join(a.format(**vals) for a in c.get("args") or []).strip()
@@ -231,15 +232,15 @@ def describe(command, targets):
         return f"{t['name']} › {command.get('address') or '/'} {command.get('args') or ''}".strip()
     c = find_command(t["plugin"], cid)
     if c is None:
-        return f"{t['name']} › comando «{cid}» non disponibile"
+        return f"{t['name']} › " + _("comando «{0}» non disponibile").format(cid)
     vals = param_values(c, command.get("values"))
     parts = []
     for prm in c.get("params") or []:
         v = vals[prm["id"]]
         if prm.get("type") == "enum":
-            v = dict((str(a), b) for a, b in prm.get("items") or []).get(str(v), v)
-        parts.append(f"{prm['label']} {v}")
-    return f"{t['name']} › {c['label']}" + (" · " + ", ".join(parts) if parts else "")
+            v = _(dict((str(a), b) for a, b in prm.get("items") or []).get(str(v), v))
+        parts.append(f"{_(prm['label'])} {v}")
+    return f"{t['name']} › {_(c['label'])}" + (" · " + ", ".join(parts) if parts else "")
 
 
 # ---------------------------------------------------------------------------- invio
@@ -249,9 +250,9 @@ _lock = threading.Lock()
 
 def osc_send(host, port, address, args_text):
     if SimpleUDPClient is None:
-        raise RuntimeError("python-osc non installato")
+        raise RuntimeError(_('python-osc non installato'))
     if not host:
-        raise ValueError("indirizzo IP del profilo non impostato")
+        raise ValueError(_('indirizzo IP del profilo non impostato'))
     key = (host, int(port))
     with _lock:
         cl = _clients.get(key)

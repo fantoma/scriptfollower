@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePol
 from .timing import fmt
 from .ui_images import ImageViewer, ThumbStrip
 from .ui_document import STYLE_BTN
+from .i18n import _
 
 
 def _big(style, size):
@@ -24,7 +25,7 @@ class NextPanel(QWidget):
         v = QVBoxLayout(self)
         v.setContentsMargins(8, 4, 4, 4)
         v.setSpacing(6)
-        title = QLabel("Prossimo evento:")
+        title = QLabel(_('Prossimo evento:'))
         f = QFont(self.font())
         f.setPointSize(15)
         f.setBold(True)
@@ -35,8 +36,7 @@ class NextPanel(QWidget):
         self.eta = QLabel()
         self.eta.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.eta.setTextFormat(Qt.RichText)
-        self.eta.setToolTip("Tempo stimato: durata media, nelle repliche registrate, dall'ultimo evento a questo.\n"
-                            "Sotto: quanto manca secondo la stima (in arancione se si è oltre).")
+        self.eta.setToolTip(_("Tempo stimato: durata media, nelle repliche registrate, dall'ultimo evento a questo.\nSotto: quanto manca secondo la stima (in arancione se si è oltre)."))
         head.addWidget(self.eta)
         v.addLayout(head)
         # nota del pulsante (promemoria per l'operatore), subito sotto il titolo
@@ -71,7 +71,7 @@ class NextPanel(QWidget):
         self.cmds.setWordWrap(True)
         self.cmds.setStyleSheet("color:#8a8c94;font-size:11px;")
         v.addWidget(self.cmds)
-        self.hint = QLabel("Spazio = invia il prossimo evento")
+        self.hint = QLabel(_('Spazio = invia il prossimo evento'))
         self.hint.setWordWrap(True)
         self.hint.setStyleSheet("color:#6c6e76;font-size:11px;")
         v.addWidget(self.hint)
@@ -80,7 +80,7 @@ class NextPanel(QWidget):
         line.setFrameShape(QFrame.HLine)
         line.setStyleSheet("color:#3a3c44;")
         v.addWidget(line)
-        self.prev_title = QLabel("Precedente (ancora attivo):")
+        self.prev_title = QLabel(_('Precedente (ancora attivo):'))
         self.prev_title.setStyleSheet("font-weight:bold;color:#c8c8cc;")
         v.addWidget(self.prev_title)
         self.prev_btn = QPushButton()
@@ -96,7 +96,7 @@ class NextPanel(QWidget):
         line2.setFrameShape(QFrame.HLine)
         line2.setStyleSheet("color:#3a3c44;")
         v.addWidget(line2)
-        nt = QLabel("Prossima nota:")
+        nt = QLabel(_('Prossima nota:'))
         nt.setStyleSheet("font-weight:bold;color:#c8c8cc;")
         v.addWidget(nt)
         self.note_imgs = ThumbStrip(52)
@@ -107,7 +107,7 @@ class NextPanel(QWidget):
         v.addWidget(self.note)
         v.addWidget(self.note_imgs)
         v.addStretch(1)
-        self.heard_title = QLabel("Sentito:")
+        self.heard_title = QLabel(_('Sentito:'))
         self.heard_title.setStyleSheet("color:#8a8c94;font-size:11px;")
         v.addWidget(self.heard_title)
         self.heard = QLabel("")
@@ -138,7 +138,8 @@ class NextPanel(QWidget):
         self.btn_imgs.set_paths([self.resolve(r) for r in (point or {}).get("images") or []])
         self._btn_title = (point or {}).get("label") or ""
         if point is None:
-            self.context.setText("<span style='color:#6c6e76'>Nessun altro pulsante nel copione.</span>")
+            self.context.setText("<span style='color:#6c6e76'>" + html.escape(_("Nessun altro pulsante nel copione."))
+                                 + "</span>")
             self.btn.setText("—")
             self.btn.setEnabled(False)
             self.btn.setStyleSheet(_big(STYLE_BTN["passed"], 18))
@@ -166,25 +167,26 @@ class NextPanel(QWidget):
         self.btn.setText(f"▶  {label}")
         self.btn.setEnabled(True)
         self.btn.setStyleSheet(_big(STYLE_BTN["next" if blink_on else "next_dim"], 20))
-        self.cmds.setText("\n".join(commands) if commands else "nessun comando OSC (pulsante vuoto)")
+        self.cmds.setText("\n".join(commands) if commands else _("nessun comando OSC (pulsante vuoto)"))
 
     def set_eta(self, estimate, left, samples):
         """estimate = durata media stimata (s) · left = secondi che mancano (None se non calcolabile)."""
         if estimate is None:
-            self.eta.setText("<span style='color:#6c6e76;font-size:12px'>tempo stimato —</span>")
+            self.eta.setText(f"<span style='color:#6c6e76;font-size:12px'>{_('tempo stimato')} —</span>")
             return
-        rep = f"{samples} replic{'a' if samples == 1 else 'he'}"
-        txt = (f"<span style='color:#9a9ca4;font-size:12px'>tempo stimato</span> "
+        rep = _("1 replica") if samples == 1 else _("{0} repliche").format(samples)
+        txt = (f"<span style='color:#9a9ca4;font-size:12px'>{_('tempo stimato')}</span> "
                f"<span style='color:#e6e6ea;font-size:18px;font-weight:bold'>{fmt(estimate)}</span>")
         if left is not None:
             if left >= 0:
-                txt += f"<br><span style='color:#6cc070;font-size:12px'>tra {fmt(left)}</span>"
+                txt += f"<br><span style='color:#6cc070;font-size:12px'>{_('tra {0}').format(fmt(left))}</span>"
             else:
-                txt += f"<br><span style='color:#e0a030;font-size:12px'>oltre di {fmt(-left)}</span>"
+                txt += (f"<br><span style='color:#e0a030;font-size:12px'>"
+                        f"{_('oltre di {0}').format(fmt(-left))}</span>")
         else:
             txt += f"<br><span style='color:#6c6e76;font-size:11px'>{rep}</span>"
         self.eta.setText(txt)
-        self.eta.setToolTip(f"Media di {rep}. Durata media dall'ultimo evento a questo; «tra» = quanto manca.")
+        self.eta.setToolTip(_("Media di {0}. Durata media dall'ultimo evento a questo; «tra» = quanto manca.").format(rep))
 
     def set_prev(self, point, sent):
         self.prev_pid = point["id"] if point else None
@@ -194,7 +196,7 @@ class NextPanel(QWidget):
         if point:
             self.prev_btn.setText(f"▶  {point.get('label') or 'Pulsante'}")
             self.prev_btn.setStyleSheet(STYLE_BTN["future" if sent else "armed"])
-            self.prev_note.setText("" if sent else "⚠ non ancora inviato")
+            self.prev_note.setText("" if sent else "⚠ " + _("non ancora inviato"))
 
     def _open(self, strip, i, title):
         if strip.paths:

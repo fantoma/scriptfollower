@@ -56,10 +56,42 @@ def number_words(n):
     return w
 
 
-def default_alias(token):
-    """Pronuncia automatica di un token (oggi: i numeri in cifre)."""
+_EN_UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+             "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+_EN_TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+
+
+def number_words_en(n):
+    """118 -> 'one hundred eighteen' (parole separate, come le scrive il modello inglese di Vosk)."""
+    n = int(n)
+    if n < 0 or n > 999_999:
+        return str(n)
+
+    def below_1000(k):
+        out = []
+        h, r = divmod(k, 100)
+        if h:
+            out += [_EN_UNITS[h], "hundred"]
+        if r >= 20:
+            t, u = divmod(r, 10)
+            out += [_EN_TENS[t]] + ([_EN_UNITS[u]] if u else [])
+        elif r or not out:
+            out.append(_EN_UNITS[r])
+        return out
+    if n < 1000:
+        return " ".join(below_1000(n))
+    th, r = divmod(n, 1000)
+    return " ".join(below_1000(th) + ["thousand"] + (below_1000(r) if r else []))
+
+
+def default_alias(token, lang="it"):
+    """Pronuncia automatica di un token: i numeri in cifre, per le lingue riconosciute con Vosk.
+    (Whisper, usato per lo sloveno, scrive di solito i numeri in cifre: lì restano come sono.)"""
     if token.isdigit() and len(token) <= 6:
-        return number_words(int(token))
+        if lang == "it":
+            return number_words(int(token))
+        if lang == "en":
+            return number_words_en(int(token))
     return None
 
 
@@ -71,14 +103,14 @@ def _strip(w):
     return "".join(ch for ch in unicodedata.normalize("NFD", w) if unicodedata.category(ch) != "Mn")
 
 
-def suggest(word, known):
+def suggest(word, known, lang="it"):
     """Proposta di pronuncia per una parola sconosciuta, usando solo parole note al modello.
 
     known(parola) -> bool. Prova: numeri in lettere, accento finale aggiunto/tolto/cambiato, parola divisa in
     due o tre parti note («aspirapolvere» → «aspira polvere»). Ritorna il testo o None."""
     w = word.lower()
-    d = default_alias(w)
-    if d and known(d):
+    d = default_alias(w, lang)
+    if d and all(known(t) for t in d.replace("-", " ").split()):
         return d
     cands = []
     base = _strip(w)

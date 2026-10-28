@@ -752,5 +752,151 @@ def finestra_e_invio_osc():
         server.server_close()
 
 
+@test
+def lingue_e_modelli():
+    """Lingue del copione: modelli trovati per lingua, nome → lingua, numeri inglesi, lettere slovene."""
+    import scriptfollower.languages as L
+    from scriptfollower.vocab import default_alias, number_words_en
+    assert L.ORDER == ["it", "en", "sl"] and L.LANGS["sl"]["engine"] == "whisper"
+    assert L.model_lang("vosk-model-small-it-0.22") == "it"
+    assert L.model_lang("vosk-model-small-en-us-0.15") == "en"
+    assert L.model_lang("faster-whisper-small") == "sl"
+    root = os.path.join(TMP, "modelli")
+    for name, files in (("vosk-model-small-en-us-0.15", ["am/final.mdl"]),
+                        ("faster-whisper-small", ["model.bin", "tokenizer.json"])):
+        for f in files:
+            os.makedirs(os.path.dirname(os.path.join(root, name, f)), exist_ok=True)
+            open(os.path.join(root, name, f), "w").close()
+    old = os.environ.get("SCRIPTFOLLOWER_MODEL")
+    os.environ["SCRIPTFOLLOWER_MODEL"] = root
+    try:
+        assert L.find_model("en").endswith("vosk-model-small-en-us-0.15")
+        assert L.find_model("sl").endswith("faster-whisper-small")
+        assert L.installed("sl")
+    finally:
+        if old is None:
+            os.environ.pop("SCRIPTFOLLOWER_MODEL")
+        else:
+            os.environ["SCRIPTFOLLOWER_MODEL"] = old
+    assert number_words_en(118) == "one hundred eighteen", number_words_en(118)
+    assert number_words_en(2024) == "two thousand twenty four", number_words_en(2024)
+    assert default_alias("21", "en") == "twenty one" and default_alias("21", "it") == "ventuno"
+    assert normalize("Čez šest žab, Đuro!") == ["čez", "šest", "žab", "đuro"]
+
+
+@test
+def interfaccia_tradotta():
+    """Cataloghi en/sl completi (stessi segnaposto) e finestre costruite in sloveno."""
+    import json
+    import re
+    import string
+    from scriptfollower import i18n
+    from scriptfollower.ui_languages import LanguagesDialog
+    from scriptfollower.ui_settings import SettingsDialog
+    here = os.path.dirname(i18n.__file__)
+    cats = {c: json.load(open(os.path.join(here, f"{c}.json"), encoding="utf-8")) for c in ("en", "sl")}
+    assert set(cats["en"]) == set(cats["sl"]), set(cats["en"]) ^ set(cats["sl"])
+    ph = re.compile(r"\{[^}]*\}")
+    for c, cat in cats.items():
+        for k, v in cat.items():
+            assert v and sorted(ph.findall(k)) == sorted(ph.findall(v)), (c, k, v)
+            list(string.Formatter().parse(v))
+    # ogni _("…") del codice ha la traduzione
+    src = ""
+    for f in os.listdir(os.path.join(ROOT, "scriptfollower")):
+        if f.endswith(".py"):
+            src += open(os.path.join(ROOT, "scriptfollower", f), encoding="utf-8").read()
+    used = set(re.findall(r"""\b_\(\s*(?:'([^'\\\n]+)'|"([^"\\\n]+)")\s*\)""", src))
+    missing = [a or b for a, b in used if (a or b) not in cats["en"]]
+    assert not missing, missing[:10]
+    try:
+        assert i18n.set_language("sl") == "sl"
+        assert i18n._("Impostazioni") == "Nastavitve"
+        assert i18n._("testo che non esiste") == "testo che non esiste"
+        d = LanguagesDialog()
+        assert d.table.rowCount() == 3 and d.table.horizontalHeaderItem(0).text() == "Jezik"
+        d.close()
+        from scriptfollower.main_window import MainWindow
+        w = MainWindow()
+        assert w.menuBar().actions()[0].text() == "&Datoteka"
+        for page in range(4):
+            SettingsDialog(w, page).close()
+        w.project.dirty = False
+        w.close()
+        from PySide6.QtCore import QCoreApplication
+        fb = i18n.QtFallback("sl", app)
+        app.installTranslator(fb)
+        try:
+            assert QCoreApplication.translate("QPlatformTheme", "Cancel") == "Prekliči"
+            assert QCoreApplication.translate("QLineEdit", "&Copy") == "&Copy"     # gli altri restano com'erano
+        finally:
+            app.removeTranslator(fb)
+        i18n.set_language("en")
+        assert i18n._("Profilo {0}").format(3) == "Profile 3"
+    finally:
+        i18n.set_language("it")
+    assert i18n.set_language("xx") == "it"
+
+
+@test
+def progetto_lingua_salvata():
+    p = Project()
+    p.language = "sl"
+    path = os.path.join(TMP, "lingua.sfollow")
+    p.save(path)
+    assert Project.load(path).language == "sl"
+    import json
+    data = json.load(open(path, encoding="utf-8"))
+    data["language"] = "xx"
+    json.dump(data, open(path, "w", encoding="utf-8"))
+    assert Project.load(path).language == "it"
+
+
+@test
+def whisper_con_modello_minuscolo():
+    """Motore Whisper vero (CTranslate2) con un modello a pesi casuali: spettrogramma, prompt, thread."""
+    from scriptfollower import whisper_engine as we
+    m = we.log_mel(np.zeros(16000, np.float32))
+    assert m.shape == (80, 3000) and m.flags["C_CONTIGUOUS"] and m.dtype == np.float32
+    if not we.available():
+        print("    (ctranslate2/tokenizers non installati: salto la parte con il modello)")
+        return
+    sys.path.insert(0, os.path.join(ROOT, "tests"))
+    import tiny_whisper
+    path = tiny_whisper.make(os.path.join(TMP, "tiny-whisper"))
+    assert we.is_whisper_model(path)
+    eng = we.WhisperEngine(path, threads=1)
+    audio = (np.random.default_rng(1).standard_normal(16000 * 2) * 0.1).astype(np.float32)
+    out = eng.transcribe(audio, "sl", prompt="dober dan")
+    assert isinstance(out, str) and len(out.split()) <= 16, out
+    try:
+        eng.transcribe(audio, "xx")
+        raise AssertionError("lingua inesistente accettata")
+    except ValueError:
+        pass
+    import scriptfollower.recognizer as rz
+    old = rz.WHISPER_STEP
+    rz.WHISPER_STEP = 0.2
+    try:
+        r = rz.Recognizer()
+        got, ready = [], []
+        r.hypothesis.connect(lambda w, t: got.append(t))
+        r.ready.connect(ready.append)
+        r.set_prompt("dober dan kako si")
+        r.start(path, engine="whisper", language="sl")
+        run(0.5)
+        chunk = (np.random.default_rng(2).standard_normal(1600) * 3000).astype(np.int16).tobytes()
+        for _ in range(40):
+            r.feed(chunk)
+            time.sleep(0.02)
+            run(0.01)
+        run(1.0)
+        r.stop()
+        assert ready == [True], ready
+        assert got, "nessuna trascrizione"
+    finally:
+        rz.WHISPER_STEP = old
+
+
 print(f"\n{len(FAILED)} prove fallite" + (f": {', '.join(FAILED)}" if FAILED else ""))
 sys.exit(len(FAILED))

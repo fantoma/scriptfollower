@@ -9,6 +9,7 @@ import uuid
 
 from .osc import clean_targets
 from .timing import START, clean_timing
+from .i18n import _
 
 EXT = ".sfollow"
 FILE_FILTER = "Progetto Script Follower (*.sfollow);;Tutti i file (*)"
@@ -30,6 +31,7 @@ class Project:
         self.overrides = {}
         self.improv = []                       # parti improvvisate [[prima parola, ultima parola]]
         self.aliases = {}                      # pronunce delle parole che il modello non conosce
+        self.language = "it"                   # lingua del copione (riconoscimento)
         self.targets = clean_targets(None)
         self.timing = clean_timing(None)       # tempi medi tra gli eventi (vedi timing.py)
         self.dirty = False
@@ -66,12 +68,13 @@ class Project:
                 "overrides": {str(k): v for k, v in sorted(self.overrides.items())},
                 "improv": [list(r) for r in sorted(self.improv)],
                 "aliases": dict(sorted(self.aliases.items())),
+                "language": self.language,
                 "timing": timing}
 
     def save(self, path=None):
         path = path or self.path
         if not path:
-            raise ValueError("nessun file indicato")
+            raise ValueError(_("nessun file indicato"))
         if not path.endswith(EXT):
             path += EXT
         self.path = os.path.abspath(path)
@@ -86,7 +89,7 @@ class Project:
         with open(path, encoding="utf-8") as f:
             d = json.load(f)
         if d.get("app") != "scriptfollower":
-            raise ValueError("non è un progetto di Script Follower")
+            raise ValueError(_("non è un progetto di Script Follower"))
         p = cls()
         p.path = os.path.abspath(path)
         pdf = d.get("pdf") or ""
@@ -102,6 +105,7 @@ class Project:
                 p.points.append(q)
         p.overrides = {int(k): bool(v) for k, v in (d.get("overrides") or {}).items()}
         p.timing = clean_timing(d.get("timing"))
+        p.language = d.get("language") if d.get("language") in ("it", "en", "sl") else "it"
         p.aliases = {str(k): str(v) for k, v in (d.get("aliases") or {}).items() if str(v).strip()}
         p.improv = [[int(r[0]), int(r[1])] for r in d.get("improv") or []
                     if isinstance(r, (list, tuple)) and len(r) == 2]

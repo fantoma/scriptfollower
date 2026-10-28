@@ -20,6 +20,7 @@ import struct
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from .i18n import _
 
 OSC_UDP_PORTS = {53000: "cuestage", 58000: "scs", 8000: "chamsys_magicq", 9000: "generico", 7000: "generico"}
 ICMP_GAP = 1.05                         # i sistemi limitano le risposte «porta chiusa» a circa una al secondo
@@ -348,20 +349,20 @@ def scan(progress=None, cancel=None, tcp_ports=(53000, 8080), sweep=True):
             results.append({"host": host, "port": port, "plugin": plugin, "name": name, "how": how,
                             "sure": sure})
 
-    say("Ricerca di CueStage e delle console luci (Art-Net)…", 0.02)
+    say(_('Ricerca di CueStage e delle console luci (Art-Net)…'), 0.02)
     for m in cuestage_masters(ips):
         host = "127.0.0.1" if m["host"] in ips else m["host"]
-        add(host, 53000, "cuestage", f"CueStage «{m['name']}»", "risponde alla ricerca delle istanze", True)
+        add(host, 53000, "cuestage", f"CueStage «{m['name']}»", _("risponde alla ricerca delle istanze"), True)
     if stop():
         return results
     for n in artnet_nodes(ips):
         txt = f"{n['name']} {n['long']}".lower()
         if "magicq" in txt or "chamsys" in txt:
             add(n["host"], 8000, "chamsys_magicq", f"ChamSys {n['name']}",
-                "Art-Net; porta OSC da controllare in Setup › Network", True)
+                _("Art-Net; porta OSC da controllare in Setup › Network"), True)
         else:
-            add(n["host"], 8000, "generico", f"Nodo Art-Net «{n['name']}»",
-                "Art-Net; supporto OSC e porta da verificare", False)
+            add(n["host"], 8000, "generico", _("Nodo Art-Net «{0}»").format(n['name']),
+                _("Art-Net; supporto OSC e porta da verificare"), False)
     if stop():
         return results
 
@@ -370,7 +371,7 @@ def scan(progress=None, cancel=None, tcp_ports=(53000, 8080), sweep=True):
     open_tcp = []
     jobs = [(h, p) for h in hosts for p in tcp_ports]
     done = 0
-    say(f"Controllo {len(hosts)} indirizzi della rete…", 0.1)
+    say(_('Controllo {0} indirizzi della rete…').format(len(hosts)), 0.1)
     with ThreadPoolExecutor(max_workers=96) as ex:
         futs = {ex.submit(tcp_state, h, p): (h, p) for h, p in jobs}
         for f in futs:
@@ -381,28 +382,28 @@ def scan(progress=None, cancel=None, tcp_ports=(53000, 8080), sweep=True):
             st = f.result()
             done += 1
             if done % 64 == 0:
-                say(f"Controllo la rete… {done}/{len(jobs)}", 0.1 + 0.6 * done / max(1, len(jobs)))
+                say(_('Controllo la rete… {0}/{1}').format(done, len(jobs)), 0.1 + 0.6 * done / max(1, len(jobs)))
             if st:
                 alive.add(h)
             if st == "open":
                 open_tcp.append((h, p))
 
-    say("Riconosco i programmi trovati…", 0.72)
+    say(_('Riconosco i programmi trovati…'), 0.72)
     for h, p in open_tcp:
         if stop():
             return results
         if p == 53000:
             v = qlab_version(h)
             if v:
-                add(h, 53000, "qlab", f"QLab {v}", "risponde a /version su TCP 53000", True)
+                add(h, 53000, "qlab", f"QLab {v}", _("risponde a /version su TCP 53000"), True)
             else:
-                add(h, 53000, "qlab", "QLab (probabile)", "porta TCP 53000 aperta", False)
+                add(h, 53000, "qlab", _("QLab (probabile)"), _("porta TCP 53000 aperta"), False)
         elif p == 8080:
             srv = http_server_name(h) or ""
             if "cuestage" in srv.lower():
-                add(h, 53000, "cuestage", "CueStage", "interfaccia web di CueStage sulla porta 8080", True)
+                add(h, 53000, "cuestage", "CueStage", _("interfaccia web di CueStage sulla porta 8080"), True)
 
-    say("Controllo le porte OSC (UDP) dei computer accesi…", 0.8)
+    say(_('Controllo le porte OSC (UDP) dei computer accesi…'), 0.8)
     alive = sorted(alive, key=lambda x: (x != "127.0.0.1", tuple(int(n) for n in x.split("."))))
     with ThreadPoolExecutor(max_workers=32) as ex:
         for h, ports in zip(alive, ex.map(lambda x: udp_open_ports(x, cancel=cancel), alive)):
@@ -410,10 +411,10 @@ def scan(progress=None, cancel=None, tcp_ports=(53000, 8080), sweep=True):
                 return results
             for p in ports:
                 guess = OSC_UDP_PORTS.get(p, "generico")
-                where = "questo computer" if h == "127.0.0.1" else h
-                name = {53000: "CueStage o QLab", 58000: "SCS (porta di esempio)", 8000: "OSC (porta 8000)"}.get(
-                    p, f"OSC (porta {p})")
-                add(h, p, guess, name, f"porta UDP {p} probabilmente aperta su {where}", False)
-    say("Ricerca finita", 1.0)
+                where = _("questo computer") if h == "127.0.0.1" else h
+                name = {53000: _("CueStage o QLab"), 58000: _("SCS (porta di esempio)"), 8000: _("OSC (porta 8000)")}.get(
+                    p, _("OSC (porta {0})").format(p))
+                add(h, p, guess, name, _("porta UDP {0} probabilmente aperta su {1}").format(p, where), False)
+    say(_('Ricerca finita'), 1.0)
     results.sort(key=lambda r: (not r["sure"], r["host"] != "127.0.0.1", r["host"], r["port"]))
     return results

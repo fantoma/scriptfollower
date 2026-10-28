@@ -72,7 +72,7 @@ def main(pyroot):
         rm(os.path.join(qt, name))
     for f in glob.glob(os.path.join(qt, "translations", "*")):
         b = os.path.basename(f)
-        if not re.match(r"qt(base)?_(it|en)\.qm$", b) and os.path.isfile(f):
+        if not re.match(r"qt(base)?_(it|en|sl)\.qm$", b) and os.path.isfile(f):
             rm(f)
     plugdir = os.path.join(qt, "plugins")
     for d in os.listdir(plugdir):

@@ -8,17 +8,15 @@ accanto al programma (uso portable, anche su chiavetta) e «models/» nella cart
 import json
 import os
 import queue
-import shutil
 import threading
 import time
-import urllib.request
-import zipfile
 from collections import deque
+
+import numpy as np
 
 from PySide6.QtCore import QObject, Signal
 
 from .align import normalize
-from .system import app_dir, bundle_dir, data_dir
 
 try:
     import vosk
@@ -26,85 +24,25 @@ try:
 except Exception:  # pragma: no cover
     vosk = None
 
+from .languages import download as _download  # noqa: E402
+from .languages import find_model as _find_model  # noqa: E402
+from .languages import is_any_model as is_model  # noqa: E402
+from .languages import list_models, model_dirs  # noqa: E402
+from .i18n import _
+
+__all__ = ["Recognizer", "find_model", "download_model", "is_model", "list_models", "model_dirs",
+           "MODEL_NAME", "MODEL_SIZE_MB"]
+
 MODEL_NAME = "vosk-model-small-it-0.22"
-MODEL_URL = f"https://alphacephei.com/vosk/models/{MODEL_NAME}.zip"
 MODEL_SIZE_MB = 48
 
 
-def model_dirs():
-    dirs = []
-    env = os.environ.get("SCRIPTFOLLOWER_MODEL")
-    if env:
-        dirs.append(env)
-    b = bundle_dir()
-    if b:
-        dirs.append(os.path.join(b, "models"))
-    dirs.append(os.path.join(app_dir(), "models"))
-    dirs.append(data_dir("models"))
-    return list(dict.fromkeys(dirs))
+def find_model(preferred="", lang="it"):
+    return _find_model(lang, preferred)
 
 
-def is_model(path):
-    return os.path.isdir(path) and (os.path.isdir(os.path.join(path, "am"))
-                                    or os.path.isfile(os.path.join(path, "conf", "model.conf")))
-
-
-def list_models():
-    """[(nome, percorso)] dei modelli trovati, senza doppioni."""
-    out, seen = [], set()
-    for d in model_dirs():
-        cands = [d] if is_model(d) else []
-        if os.path.isdir(d) and not cands:
-            cands = [os.path.join(d, n) for n in sorted(os.listdir(d))]
-        for c in cands:
-            if is_model(c):
-                rp = os.path.realpath(c)
-                if rp not in seen:
-                    seen.add(rp)
-                    out.append((os.path.basename(c.rstrip("/\\")), c))
-    return out
-
-
-def find_model(preferred=""):
-    if preferred and is_model(preferred):
-        return preferred
-    ms = list_models()
-    for name, path in ms:                # prima i modelli italiani
-        if "-it" in name:
-            return path
-    return ms[0][1] if ms else ""
-
-
-def download_model(progress=None, dest=None, url=MODEL_URL):
-    """Scarica ed estrae il modello italiano. progress(scaricati, totali). Ritorna il percorso."""
-    dest = dest or data_dir("models")
-    os.makedirs(dest, exist_ok=True)
-    zpath = os.path.join(dest, MODEL_NAME + ".zip.part")
-    with urllib.request.urlopen(url, timeout=30) as r, open(zpath, "wb") as f:
-        total = int(r.headers.get("Content-Length") or 0)
-        done = 0
-        while True:
-            chunk = r.read(1 << 16)
-            if not chunk:
-                break
-            f.write(chunk)
-            done += len(chunk)
-            if progress:
-                progress(done, total)
-    tmp = os.path.join(dest, ".estrazione")
-    shutil.rmtree(tmp, ignore_errors=True)
-    with zipfile.ZipFile(zpath) as z:
-        z.extractall(tmp)
-    os.remove(zpath)
-    inner = [os.path.join(tmp, n) for n in os.listdir(tmp)]
-    src = next((p for p in inner if is_model(p)), tmp)
-    final = os.path.join(dest, MODEL_NAME)
-    shutil.rmtree(final, ignore_errors=True)
-    shutil.move(src, final)
-    shutil.rmtree(tmp, ignore_errors=True)
-    if not is_model(final):
-        raise RuntimeError("l'archivio scaricato non contiene un modello Vosk")
-    return final
+def download_model(progress=None, dest=None, lang="it"):
+    return _download(lang, progress, dest)
 
 
 def model_vocabulary(path):
@@ -118,6 +56,10 @@ def model_vocabulary(path):
             except OSError:
                 return None
     return None
+
+
+WHISPER_WINDOW = 6.0                             # secondi di audio trascritti ogni volta
+WHISPER_STEP = 0.8                               # ogni quanto si trascrive
 
 
 class Recognizer(QObject):
@@ -140,6 +82,7 @@ class Recognizer(QObject):
         self.raw = deque(maxlen=40)              # testo sentito (per la finestra «Sentito»)
         self._reset = False
         self._vocab = None                       # nuovo vocabolario da applicare (dal thread)
+        self._prompt = ""                        # Whisper: testo detto prima
         self._model_lock = threading.Lock()
 
     def available(self):
@@ -149,7 +92,7 @@ class Recognizer(QObject):
         """Carica il modello (una volta sola, anche da un altro thread) e lo restituisce."""
         with self._model_lock:
             if self.model is None or self.model_path != model_path:
-                self.status.emit(f"Carico il modello vocale «{os.path.basename(model_path)}»…")
+                self.status.emit(_('Carico il modello vocale «{0}»…').format(os.path.basename(model_path)))
                 self.model = vosk.Model(model_path)
                 self.model_path = model_path
             return self.model
@@ -169,15 +112,17 @@ class Recognizer(QObject):
             return v
         return known
 
-    def start(self, model_path, vocabulary=None):
+    def start(self, model_path, vocabulary=None, engine="vosk", language="it"):
         """Carica il modello (se serve) e inizia ad ascoltare. vocabulary = parole ammesse o None."""
         self.stop()
-        if vosk is None:
-            self.status.emit("Vosk non installato: riconoscimento vocale non disponibile")
+        if engine == "vosk" and vosk is None:
+            self.status.emit(_('Vosk non installato: riconoscimento vocale non disponibile'))
             self.ready.emit(False)
             return
         self.running = True
-        self.thread = threading.Thread(target=self._run, args=(model_path, vocabulary), daemon=True)
+        target = self._run_whisper if engine == "whisper" else self._run
+        args = (model_path, language) if engine == "whisper" else (model_path, vocabulary)
+        self.thread = threading.Thread(target=target, args=args, daemon=True)
         self.thread.start()
 
     def stop(self):
@@ -238,11 +183,11 @@ class Recognizer(QObject):
                 rec = vosk.KaldiRecognizer(self.model, 16000)
         except Exception as e:  # noqa: BLE001
             self.running = False
-            self.status.emit(f"Modello vocale non caricato: {e}")
+            self.status.emit(_('Modello vocale non caricato: {0}').format(e))
             self.ready.emit(False)
             return
         self.ready.emit(True)
-        self.status.emit("In ascolto" + (" (vocabolario del copione)" if vocabulary else ""))
+        self.status.emit(_("In ascolto (vocabolario del copione)") if vocabulary else _("In ascolto"))
         last_partial = 0.0
         partial_words = []
         while self.running:
@@ -259,7 +204,7 @@ class Recognizer(QObject):
                                                json.dumps(voc + ["[unk]"], ensure_ascii=False))
                     partial_words = []
                 except Exception as e:  # noqa: BLE001
-                    self.status.emit(f"Vocabolario non aggiornato: {e}")
+                    self.status.emit(_('Vocabolario non aggiornato: {0}').format(e))
             if self._reset:
                 self._reset = False
                 partial_words = []
@@ -286,6 +231,73 @@ class Recognizer(QObject):
                             partial_words = words
                             self.hypothesis.emit(list(self.history) + words, text)
             except Exception as e:  # noqa: BLE001
-                self.status.emit(f"Errore del riconoscitore: {e}")
+                self.status.emit(_('Errore del riconoscitore: {0}').format(e))
                 time.sleep(0.2)
+        self.running = False
+
+    # ------------------------------------------------------------ Whisper (finestra mobile)
+    def set_prompt(self, text):
+        """Testo del copione detto fino a qui: aiuta Whisper con lo stile e i nomi propri."""
+        self._prompt = text or ""
+
+    def _run_whisper(self, model_path, language):
+        from .whisper_engine import WhisperEngine
+        try:
+            with self._model_lock:
+                if not isinstance(self.model, WhisperEngine) or self.model_path != model_path:
+                    self.status.emit(_('Carico il modello vocale «{0}»…').format(os.path.basename(model_path)))
+                    self.model = WhisperEngine(model_path)
+                    self.model_path = model_path
+            eng = self.model
+        except Exception as e:  # noqa: BLE001
+            self.running = False
+            self.status.emit(_('Modello vocale non caricato: {0}').format(e))
+            self.ready.emit(False)
+            return
+        self.ready.emit(True)
+        self.status.emit(_('In ascolto (Whisper)'))
+        win = int(WHISPER_WINDOW * 16000)
+        buf = np.zeros(0, np.float32)
+        new = 0                                  # campioni arrivati dall'ultima trascrizione
+        last = time.monotonic()
+        while self.running:
+            try:
+                data = self.q.get(timeout=0.1)
+            except queue.Empty:
+                data = b""
+            if data is None:
+                break
+            if self._reset:
+                self._reset = False
+                buf = np.zeros(0, np.float32)
+                new = 0
+            if data:
+                x = np.frombuffer(data, np.int16).astype(np.float32) / 32768.0
+                buf = np.concatenate((buf, x))[-win:]
+                new += len(x)
+            now = time.monotonic()
+            if new < 16000 * WHISPER_STEP or now - last < WHISPER_STEP:
+                continue
+            last = now
+            new = 0
+            voiced = np.abs(buf) > 1e-3                          # dopo il gate: zeri = silenzio
+            if voiced.mean() < 0.12:
+                continue
+            first = int(np.argmax(voiced))                       # niente silenzio iniziale
+            try:
+                text = eng.transcribe(buf[max(0, first - 1600):], language, self._prompt)
+            except Exception as e:  # noqa: BLE001
+                self.status.emit(_('Errore del riconoscitore: {0}').format(e))
+                time.sleep(0.3)
+                continue
+            words = normalize(text)
+            if words:
+                self.raw.append(text)
+                self.hypothesis.emit(words[-24:], text)
+            # svuota la coda accumulata durante la trascrizione (si resta in tempo reale)
+            while self.q.qsize() > 40:
+                try:
+                    self.q.get_nowait()
+                except queue.Empty:
+                    break
         self.running = False

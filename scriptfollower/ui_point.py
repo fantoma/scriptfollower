@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpin
 
 from .osc import CUSTOM, clean_targets, describe, find_command, find_target, plugins, render, send_commands
 from .project import NOTE_COLORS
+from .i18n import _
 
 
 def _rows_height(w, rows, row=None):
@@ -31,13 +32,13 @@ class CommandEditor(QWidget):
         f = QFormLayout()
         self.target = QComboBox()
         for i, t in enumerate(self.targets):
-            pl = plugins().get(t["plugin"], {}).get("name", t["plugin"])
+            pl = _(plugins().get(t["plugin"], {}).get("name", t["plugin"]))
             self.target.addItem(f"{i + 1}. {t['name']}  ({pl} · {t['host']}:{t['port']})", t["id"])
         self.target.currentIndexChanged.connect(self._target_changed)
-        f.addRow("Profilo OSC", self.target)
+        f.addRow(_('Profilo OSC'), self.target)
         self.command = QComboBox()
         self.command.currentIndexChanged.connect(self._command_changed)
-        f.addRow("Comando", self.command)
+        f.addRow(_('Comando'), self.command)
         v.addLayout(f)
         self.params_box = QWidget()
         self.params = QFormLayout(self.params_box)
@@ -49,11 +50,11 @@ class CommandEditor(QWidget):
         self.address = QLineEdit()
         self.address.setPlaceholderText("/indirizzo/osc")
         self.address.textEdited.connect(self._changed)
-        fc.addRow("Indirizzo", self.address)
+        fc.addRow(_('Indirizzo'), self.address)
         self.args = QLineEdit()
-        self.args.setPlaceholderText('argomenti separati da spazi: 1  2.5  "testo"  true')
+        self.args.setPlaceholderText(_('argomenti separati da spazi: 1  2.5  "testo"  true'))
         self.args.textEdited.connect(self._changed)
-        fc.addRow("Argomenti", self.args)
+        fc.addRow(_('Argomenti'), self.args)
         v.addWidget(self.custom_box)
         self.preview = QLabel()
         self.preview.setStyleSheet("color:#6cc070;font-family:monospace;")
@@ -98,8 +99,8 @@ class CommandEditor(QWidget):
         p = plugins().get(self._plugin())
         for c in (p or {}).get("commands") or []:
             if c["id"] != "custom" or self._plugin() != "generico":
-                self.command.addItem(c["label"], c["id"])
-        self.command.addItem("✎ Indirizzo e argomenti personalizzati", CUSTOM)
+                self.command.addItem(_(c["label"]), c["id"])
+        self.command.addItem(_('✎ Indirizzo e argomenti personalizzati'), CUSTOM)
         self.command.blockSignals(False)
 
     def _target_changed(self, *_a):
@@ -130,7 +131,7 @@ class CommandEditor(QWidget):
         c = find_command(self._plugin(), cid) if cid != CUSTOM else None
         self.params_box.setVisible(bool(c and c.get("params")))
         pl = plugins().get(self._plugin(), {})
-        self.help.setText((c or {}).get("help") or (pl.get("notes") if cid == CUSTOM else "") or "")
+        self.help.setText(_((c or {}).get("help") or (pl.get("notes") if cid == CUSTOM else "") or ""))
         if not c:
             return
         vals = self.cmd.setdefault("values", {})
@@ -157,7 +158,7 @@ class CommandEditor(QWidget):
             elif t == "enum":
                 w = QComboBox()
                 for a, b in prm.get("items") or []:
-                    w.addItem(b, str(a))
+                    w.addItem(_(b), str(a))
                 w.setCurrentIndex(max(0, w.findData(str(cur))))
                 w.currentIndexChanged.connect(lambda _i, k=prm["id"], ww=w: self._set_val(k, ww.currentData()))
             else:
@@ -165,7 +166,7 @@ class CommandEditor(QWidget):
                 w.textEdited.connect(lambda val, k=prm["id"]: self._set_val(k, val))
             vals[prm["id"]] = cur
             self.inputs[prm["id"]] = w
-            self.params.addRow(prm["label"], w)
+            self.params.addRow(_(prm["label"]), w)
 
     def _set_val(self, k, v):
         if self.cmd is not None:
@@ -201,39 +202,39 @@ class PointDialog(QDialog):
         self.p.setdefault("images", [])
         self.targets = clean_targets(targets)
         is_btn = self.p["kind"] == "button"
-        self.setWindowTitle("Pulsante OSC" if is_btn else "Annotazione")
+        self.setWindowTitle(_("Pulsante OSC") if is_btn else _("Annotazione"))
         v = QVBoxLayout(self)
         if context_text:
-            ctx = QLabel(f"Al punto: «… {context_text}»")
+            ctx = QLabel(_('Al punto: «… {0}»').format(context_text))
             ctx.setWordWrap(True)
             ctx.setStyleSheet("color:#aaa;")
             v.addWidget(ctx)
         f = QFormLayout()
         if is_btn:
             self.label = QLineEdit(self.p.get("label") or "")
-            self.label.setPlaceholderText("es. LUCI 4 · BLU")
-            f.addRow("Nome del pulsante", self.label)
+            self.label.setPlaceholderText(_('es. LUCI 4 · BLU'))
+            f.addRow(_('Nome del pulsante'), self.label)
             self.text = QPlainTextEdit(self.p.get("text") or "")
-            self.text.setPlaceholderText("promemoria per l'operatore: compare sotto «Prossimo evento» (facoltativo)")
+            self.text.setPlaceholderText(_("promemoria per l'operatore: compare sotto «Prossimo evento» (facoltativo)"))
             self.text.setTabChangesFocus(True)
             self.text.setMinimumHeight(_rows_height(self.text, 5))
-            f.addRow("Nota", self.text)
+            f.addRow(_('Nota'), self.text)
         else:
             self.text = QPlainTextEdit(self.p.get("text") or "")
-            self.text.setPlaceholderText("es. Entra Camilla da destra")
+            self.text.setPlaceholderText(_('es. Entra Camilla da destra'))
             self.text.setTabChangesFocus(True)
             self.text.setMinimumHeight(_rows_height(self.text, 5))
-            f.addRow("Testo", self.text)
+            f.addRow(_('Testo'), self.text)
             self.color = QComboBox()
-            names = ["Giallo", "Azzurro", "Rosso", "Verde", "Viola"]
+            names = [_("Giallo"), _("Azzurro"), _("Rosso"), _("Verde"), _("Viola")]
             for c, n in zip(NOTE_COLORS, names):
                 self.color.addItem(f"● {n}", c)
             self.color.setCurrentIndex(max(0, self.color.findData(self.p.get("color"))))
-            f.addRow("Colore", self.color)
+            f.addRow(_('Colore'), self.color)
         v.addLayout(f)
         self._build_images(v)
         if is_btn:
-            g = QGroupBox("Comandi OSC (inviati nell'ordine, tutti alla pressione)")
+            g = QGroupBox(_("Comandi OSC (inviati nell'ordine, tutti alla pressione)"))
             gv = QVBoxLayout(g)
             row = QHBoxLayout()
             self.list = QListWidget()
@@ -243,8 +244,8 @@ class PointDialog(QDialog):
             self.list.currentRowChanged.connect(self._select)
             row.addWidget(self.list, 1)
             col = QVBoxLayout()
-            for text, fn in (("＋ Aggiungi", self._add), ("Duplica", self._dup), ("▲", lambda: self._move(-1)),
-                             ("▼", lambda: self._move(1)), ("Elimina", self._del)):
+            for text, fn in ((_("＋ Aggiungi"), self._add), (_("Duplica"), self._dup), ("▲", lambda: self._move(-1)),
+                             ("▼", lambda: self._move(1)), (_("Elimina"), self._del)):
                 b = QPushButton(text)
                 b.clicked.connect(fn)
                 col.addWidget(b)
@@ -253,7 +254,7 @@ class PointDialog(QDialog):
             gv.addLayout(row)
             self.editor = CommandEditor(self.targets, self._refresh_row)
             gv.addWidget(self.editor)
-            test = QPushButton("Prova: invia adesso")
+            test = QPushButton(_('Prova: invia adesso'))
             test.clicked.connect(self._test)
             gv.addWidget(test, 0, Qt.AlignLeft)
             self.msg = QLabel()
@@ -274,7 +275,7 @@ class PointDialog(QDialog):
 
     # ------------------------------------------------------------ immagini e foto
     def _build_images(self, v):
-        g = QGroupBox("Immagini e foto (miniature sotto la nota; clic per aprirle in una finestra)")
+        g = QGroupBox(_('Immagini e foto (miniature sotto la nota; clic per aprirle in una finestra)'))
         h = QHBoxLayout(g)
         self.imgs = QListWidget()
         self.imgs.setViewMode(QListWidget.IconMode)
@@ -294,9 +295,10 @@ class PointDialog(QDialog):
         self.imgs.dropEvent = self._drop
         h.addWidget(self.imgs, 1)
         col = QVBoxLayout()
-        for text, fn in (("＋ Aggiungi…", self._add_images), ("Apri", lambda: self._open_image(self.imgs.currentRow())),
+        for text, fn in ((_("＋ Aggiungi…"), self._add_images),
+                         (_("Apri"), lambda: self._open_image(self.imgs.currentRow())),
                          ("◀", lambda: self._move_image(-1)), ("▶", lambda: self._move_image(1)),
-                         ("Rimuovi", self._remove_image)):
+                         (_("Rimuovi"), self._remove_image)):
             b = QPushButton(text)
             b.clicked.connect(fn)
             col.addWidget(b)
@@ -316,7 +318,7 @@ class PointDialog(QDialog):
         for rel in self.p["images"]:
             pm = thumbnail(self._abs(rel), 72)
             it = QListWidgetItem(QIcon(pm), "" if not pm.isNull() else "⚠ " + rel.split("/")[-1])
-            it.setToolTip(rel + ("" if not pm.isNull() else "\n(immagine non trovata)"))
+            it.setToolTip(rel + ("" if not pm.isNull() else "\n" + _("(immagine non trovata)")))
             self.imgs.addItem(it)
 
     def _import(self, paths):
@@ -325,12 +327,12 @@ class PointDialog(QDialog):
         if not paths:
             return
         if self.project is None or not (self.project.pdf or self.project.path):
-            QMessageBox.warning(self, "Immagini", "Apri prima un copione: le immagini vengono copiate accanto al PDF.")
+            QMessageBox.warning(self, _('Immagini'), _('Apri prima un copione: le immagini vengono copiate accanto al PDF.'))
             return
         try:
             rels = import_images(self.project, paths)
         except OSError as e:
-            QMessageBox.warning(self, "Immagini", f"Copia non riuscita: {e}")
+            QMessageBox.warning(self, _('Immagini'), _('Copia non riuscita: {0}').format(e))
             return
         for r in rels:
             if r not in self.p["images"]:
@@ -340,7 +342,7 @@ class PointDialog(QDialog):
 
     def _add_images(self):
         from .ui_images import IMAGE_FILTER
-        paths, _ = QFileDialog.getOpenFileNames(self, "Aggiungi immagini o foto", "", IMAGE_FILTER)
+        paths, _f = QFileDialog.getOpenFileNames(self, _("Aggiungi immagini o foto"), "", _(IMAGE_FILTER))
         self._import(paths)
 
     def _drag_enter(self, e):
@@ -430,7 +432,7 @@ class PointDialog(QDialog):
             self.msg.setText("⚠ " + "\n⚠ ".join(errors))
             self.msg.setStyleSheet("color:#e66;")
         else:
-            self.msg.setText("Inviato: " + " · ".join(sent) if sent else "Nessun comando da inviare")
+            self.msg.setText(_("Inviato: ") + " · ".join(sent) if sent else _("Nessun comando da inviare"))
             self.msg.setStyleSheet("color:#6c6;")
 
     # ------------------------------------------------------------ risultato

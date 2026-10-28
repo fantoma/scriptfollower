@@ -6,7 +6,9 @@ scorrere il **PDF del copione** di conseguenza. Nei punti scelti in preparazione
 
 Stesso stack e stessa veste grafica di [CueStage](https://github.com/fantoma/cuestage): Python 3, PySide6
 (Qt, stile Fusion scuro), sounddevice/PortAudio, python-osc. In più: **Vosk** (riconoscimento vocale offline)
-e **PyMuPDF** (PDF).
+e **PyMuPDF** (PDF); per lo sloveno **Whisper** (CTranslate2).
+
+Interfaccia in **italiano, inglese e sloveno**; copioni in **italiano, inglese e sloveno**.
 
 Pacchetti **portable** per Linux (AppImage), Windows (cartella in uno zip) e macOS (.app in un .dmg), costruiti
 da GitHub Actions con il modello vocale italiano già incluso: nessuna installazione, funziona anche da chiavetta.
@@ -185,6 +187,30 @@ Per installarlo su Ubuntu dai sorgenti, con la voce nel menu e il modello vocale
 Su Linux serve `libportaudio2`. Il modello vocale si scarica da **Impostazioni › Riconoscimento**, oppure si
 mette in `models/`.
 
+## Lingue
+
+Due scelte indipendenti, nel menu **Lingua**:
+
+- **Lingua dell'interfaccia**: italiano, English, slovenščina (vale dal riavvio successivo; il programma
+  propone di riavviarsi subito).
+- **Lingua del copione** (riconoscimento): si salva nel progetto. Nei pacchetti portable c'è solo il modello
+  italiano; gli altri si scaricano una volta sola da **Lingua › Lingue del riconoscimento** (Scarica / Rimuovi).
+
+| Lingua | Motore | Modello | Dimensione |
+|---|---|---|---|
+| Italiano | Vosk | `vosk-model-small-it-0.22` (incluso) | 48 MB |
+| English | Vosk | `vosk-model-small-en-us-0.15` | 40 MB |
+| Slovenščina | Whisper (CTranslate2) | `faster-whisper-small` (Hugging Face, Systran) | 484 MB |
+
+Vosk non ha un modello sloveno, per questo lo sloveno usa **Whisper** «small» multilingue, eseguito con
+CTranslate2 (int8, CPU) senza faster-whisper: il programma calcola da solo lo spettrogramma e trascrive una
+finestra mobile di 6 s ogni 0,8 s, passando come contesto il testo già detto. Rispetto a Vosk ha circa 1–2 s di
+ritardo in più e chiede più CPU (consigliato un computer a 4 core recente); il vocabolario è aperto, quindi la
+finestra «Vocabolario del copione» e il vocabolario limitato non servono. I numeri in cifre nei copioni
+italiani e inglesi si leggono già in lettere (118 → centodiciotto / one hundred eighteen).
+
+Le traduzioni sono in `scriptfollower/i18n/en.json` e `sl.json` (chiave = testo italiano del codice).
+
 ## Dove si cerca il modello vocale
 
 1. `$SCRIPTFOLLOWER_MODEL`
@@ -217,7 +243,9 @@ macOS chiede il permesso per il microfono.
 | `script_doc.py` | lettura del PDF, parole con coordinate, parti dette ed escluse, frasi |
 | `align.py` | normalizzazione e allineamento del parlato al copione |
 | `audio_input.py` | ingresso audio, gate, meter, ricampionamento a 16 kHz |
-| `recognizer.py` | Vosk in un thread, ricerca e download del modello |
+| `recognizer.py` | riconoscimento in un thread (Vosk o Whisper) |
+| `languages.py`, `whisper_engine.py` | lingue del copione, modelli e download; Whisper con CTranslate2 |
+| `i18n/` | traduzioni dell'interfaccia (inglese, sloveno) |
 | `osc.py` + `osc_profiles/` | profili di destinazione, plugin, invio |
 | `project.py` | progetto `.sfollow` e regole dei pulsanti durante lo spettacolo |
 | `ui_*.py`, `main_window.py` | interfaccia |
@@ -225,4 +253,4 @@ macOS chiede il permesso per il microfono.
 ## Licenze
 
 GPL v3 (come CueStage). PyMuPDF è AGPL v3, compatibile con un progetto GPL v3 open source. Vosk e i suoi
-modelli sono Apache 2.0.
+modelli sono Apache 2.0. CTranslate2, tokenizers e i modelli Whisper sono MIT.

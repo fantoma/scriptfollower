@@ -30,9 +30,23 @@ def main():
                 return True
             return super().event(e)
 
+    app = _App(sys.argv)
+    # lingua dell'interfaccia (Lingua › Lingua dell'interfaccia), prima di costruire le finestre
+    from PySide6.QtCore import QLibraryInfo, QSettings, QTranslator
+    from .i18n import set_language
+    code = set_language(str(QSettings("ScriptFollower", "ScriptFollower").value("ui_lang", "it") or "it"))
+    qt_tr = QTranslator(app)                 # pulsanti standard di Qt (OK, Annulla, Sì, No…)
+    if qt_tr.load(f"qtbase_{code}", QLibraryInfo.path(QLibraryInfo.TranslationsPath)):
+        app.installTranslator(qt_tr)
+    else:                                    # Qt 6 non ha qtbase_sl: i pochi pulsanti standard a mano
+        from .i18n import QtFallback
+        fb = QtFallback(code, app)
+        if fb.table:
+            app.installTranslator(fb)
+            app._qt_fallback = fb
+
     from .main_window import MainWindow
 
-    app = _App(sys.argv)
     app.setApplicationName("Script Follower")
     app.setWindowIcon(QIcon(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")))
     app.setDesktopFileName("scriptfollower")

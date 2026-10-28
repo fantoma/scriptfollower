@@ -8,6 +8,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
 from .audio_input import MIN_METER_DB, lin_to_db
+from .i18n import _
 
 
 class GateMeter(QWidget):
@@ -27,8 +28,7 @@ class GateMeter(QWidget):
             self.setFixedSize(230, 56)
         else:
             self.setMinimumSize(380, 86)
-        self.setToolTip("Livello dell'ingresso (sopra) e segnale che passa il gate verso il riconoscitore (sotto).\n"
-                        "Trascina il cursore bianco per regolare la soglia del gate.")
+        self.setToolTip(_("Livello dell'ingresso (sopra) e segnale che passa il gate verso il riconoscitore (sotto).\nTrascina il cursore bianco per regolare la soglia del gate."))
 
     def sizeHint(self):
         return QSize(230, 56) if self.compact else QSize(460, 86)
@@ -106,9 +106,9 @@ class GateMeter(QWidget):
             p.drawText(QRectF(x - 14, ty, 28, 12), Qt.AlignCenter, str(mark))
         if self.compact:
             p.setPen(QColor(150, 150, 158))
-            label = ("gate " + f"{thr:.0f} dB") if self.gate_on else "gate spento"
+            label = _("gate {0:.0f} dB").format(thr) if self.gate_on else _("gate spento")
             if not listening:
-                label = "ingresso chiuso"
+                label = _("ingresso chiuso")
             p.drawText(QRectF(bar.left(), ty + 10, bar.width(), 12), Qt.AlignLeft | Qt.AlignVCenter, label)
             if listening and a.gate and self.gate_on:
                 p.setPen(Qt.NoPen)
@@ -120,8 +120,8 @@ class GateMeter(QWidget):
             p.setBrush(QColor(40, 150, 80) if opened else QColor(60, 62, 70))
             p.drawRoundedRect(led, 4, 4)
             p.setPen(QColor(255, 255, 255))
-            p.drawText(led, Qt.AlignCenter, ("GATE\nAPERTO" if opened else "gate\nchiuso") if self.gate_on
-                       else ("gate\nspento" if listening else "non in\nascolto"))
+            p.drawText(led, Qt.AlignCenter, (_("GATE\nAPERTO") if opened else _("gate\nchiuso")) if self.gate_on
+                       else (_("gate\nspento") if listening else _("non in\nascolto")))
         p.end()
 
     # ------------------------------------------------------------ cursore della soglia
