@@ -903,7 +903,11 @@ def prova_con_file_audio():
     """File audio al posto della scheda: lettura (libsndfile e ffmpeg), canali, salti, gate e invio a 16 kHz."""
     import shutil
     import subprocess
-    import soundfile as sf
+    try:
+        import soundfile as sf
+    except ImportError:
+        print("    (soundfile non installato: salto la prova; pip install soundfile)")
+        return
     from scriptfollower.audio_file import AudioFile, FilePlayer, fmt_time, is_audio
     from scriptfollower.audio_input import AudioInput
     sr = 44100
@@ -984,7 +988,11 @@ def prova_con_file_audio():
 
 @test
 def finestra_prova_file_audio():
-    import soundfile as sf
+    try:
+        import soundfile as sf
+    except ImportError:
+        print("    (soundfile non installato: salto la prova)")
+        return
     from scriptfollower.main_window import MainWindow
     path = os.path.join(TMP, "replica.flac")
     sf.write(path, (0.3 * np.sin(np.arange(16000 * 3) / 8)).astype(np.float32), 16000)
