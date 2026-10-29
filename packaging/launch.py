@@ -1,6 +1,6 @@
 """Avvio di Script Follower impacchettato (AppImage su Linux, PyInstaller su Windows e macOS).
 
-    ScriptFollower [copione.pdf | progetto.sfollow]   avvia il programma
+    ScriptFollower [copione.pdf | dati.json]          avvia il programma
     ScriptFollower --version                          versione
     ScriptFollower --self-test [file]                 verifica che tutte le parti incluse funzionino
                                                       (su Windows il risultato va anche in «file»)

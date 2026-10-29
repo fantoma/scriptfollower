@@ -11,6 +11,8 @@ dall'app. Si può invece:
    «118» → «centodiciotto»): il riconoscitore le può sentire e l'allineamento le aggancia alla parola;
 3. le parole sconosciute senza pronuncia vengono saltate senza penalità dall'allineamento.
 """
+import json
+import os
 import unicodedata
 
 _UNITS = ["zero", "uno", "due", "tre", "quattro", "cinque", "sei", "sette", "otto", "nove", "dieci", "undici",
@@ -135,3 +137,48 @@ def suggest(word, known, lang="it"):
             if len(c) >= 2 and known(a) and known(b) and known(c):
                 return f"{a} {b} {c}"
     return None
+
+
+# ---------------------------------------------------------------------------- vocabolari su file
+VOCAB_FILTER = "Vocabolario (*.json *.txt *.csv);;Tutti i file (*)"
+
+
+def vocab_export(path, aliases, lang=""):
+    """Pronunce su file: JSON (con la lingua) oppure testo «parola = pronuncia», una per riga."""
+    items = sorted((str(k), str(v)) for k, v in (aliases or {}).items() if str(v).strip())
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        if path.lower().endswith(".json"):
+            json.dump({"app": "scriptfollower-vocabolario", "version": 1, "language": lang,
+                       "aliases": dict(items)}, f, ensure_ascii=False, indent=1)
+        else:
+            f.write(f"# Script Follower — vocabolario ({lang or '?'}): parola del copione = pronuncia\n")
+            for k, v in items:
+                f.write(f"{k} = {v}\n")
+    os.replace(tmp, path)
+    return len(items)
+
+
+def vocab_import(path):
+    """({parola: pronuncia}, lingua o "") da un file JSON o di testo («parola = pronuncia», tab o «;»)."""
+    with open(path, encoding="utf-8-sig") as f:
+        text = f.read()
+    if text.lstrip().startswith("{"):
+        d = json.loads(text)
+        al = d.get("aliases") if isinstance(d.get("aliases"), dict) else d
+        out = {str(k).strip(): str(v).strip() for k, v in al.items()
+               if isinstance(v, str) and str(k).strip() and v.strip() and k not in ("app", "version", "language")}
+        return out, str(d.get("language") or "")
+    out = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        for sep in ("=", "\t", ";"):
+            if sep in line:
+                k, v = line.split(sep, 1)
+                k, v = k.strip().strip('"'), v.strip().strip('"')
+                if k and v:
+                    out[k] = v
+                break
+    return out, ""

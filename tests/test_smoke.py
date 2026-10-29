@@ -16,11 +16,16 @@ import traceback
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# impostazioni e dati dei test in cartelle temporanee: quelli veri dell'utente non si toccano
+_HOME = tempfile.mkdtemp(prefix="scriptfollower-home-")
+os.environ["SCRIPTFOLLOWER_DATA"] = os.path.join(_HOME, "dati")
 
 import numpy as np  # noqa: E402
 from PySide6.QtCore import QSettings  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
+QSettings.setPath(QSettings.NativeFormat, QSettings.UserScope, os.path.join(_HOME, "config"))
+QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, os.path.join(_HOME, "config"))
 app = QApplication.instance() or QApplication([])
 QSettings("ScriptFollower", "ScriptFollower").clear()
 QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
@@ -31,7 +36,7 @@ import scriptfollower.audio_input as ai  # noqa: E402
 ai.sd = None                                   # nessuna scheda richiesta
 from scriptfollower.align import Aligner, normalize  # noqa: E402
 from scriptfollower.osc import parse_osc_args, plugins, render  # noqa: E402
-from scriptfollower.project import Cueing, Project, new_point  # noqa: E402
+from scriptfollower.project import Cueing, Project, new_point, read_json  # noqa: E402
 from scriptfollower.script_doc import ScriptDoc, pymupdf  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="scriptfollower-test-")
@@ -448,7 +453,9 @@ def navigazione_riattivazione_zone():
 def immagini_dei_pulsanti():
     from PySide6.QtGui import QColor, QImage
     from scriptfollower.main_window import MainWindow
-    from scriptfollower.ui_images import ImageViewer, abs_path, media_dir
+    import shutil
+    from scriptfollower import pdf_store
+    from scriptfollower.ui_images import ImageViewer, abs_path, store_dir
     from scriptfollower.ui_point import PointDialog
     src = []
     for i, col in enumerate(("red", "blue")):
@@ -458,14 +465,17 @@ def immagini_dei_pulsanti():
         im.save(path)
         src.append(path)
     w = MainWindow()
-    w.open_pdf(PDF)
+    pdf = os.path.join(TMP, "immagini.pdf")
+    shutil.copy(PDF, pdf)
+    w.open_pdf(pdf)
     k = next(x.i for x in w.doc.words if x.text == "questo!")
     p = new_point(k, "button")
     p["label"] = "Luci"
     dlg = PointDialog(p, w.project.targets, "", w, project=w.project)
     dlg._import(src + [src[0]])                      # la stessa due volte: una sola
-    assert dlg.p["images"] == ["copione_immagini/foto0.png", "copione_immagini/foto1.png"], dlg.p["images"]
-    assert os.path.isfile(os.path.join(media_dir(w.project), "foto1.png"))
+    assert len(dlg.p["images"]) == 2 and all(r.startswith("media:") for r in dlg.p["images"]), dlg.p["images"]
+    assert dlg.p["images"][1].endswith("_foto1.png")
+    assert os.path.isfile(os.path.join(store_dir(), dlg.p["images"][1][6:]))
     dlg._move_image(-1) if dlg.imgs.currentRow() == 1 else None
     assert dlg.p["images"][0].endswith("foto1.png")
     w.project.add_point(dlg.result_point())
@@ -481,12 +491,22 @@ def immagini_dei_pulsanti():
     v.step(1)
     assert v.i == 0
     v.close()
-    # salvato e riaperto: i percorsi restano relativi al PDF
-    w.project.path = os.path.join(TMP, "immagini.sfollow")
-    w.save()
-    q = Project.load(w.project.path)
-    pt = next(x for x in q.points if x["label"] == "Luci")
-    assert os.path.isfile(abs_path(q, pt["images"][0]))
+    # salvato nel PDF con le immagini dentro: su un altro computer (deposito vuoto) tornano fuori
+    assert w.save()
+    data, imgs = pdf_store.read(pdf)
+    assert len(imgs) == 2 and sum(len(b) for b in imgs.values()) > 500
+    shutil.rmtree(store_dir())
+    w.project.dirty = False
+    w.close()
+    w = MainWindow()
+    w.open_pdf(pdf)
+    pt = next(x for x in w.project.points if x["label"] == "Luci")
+    assert all(os.path.isfile(abs_path(w.project, r)) for r in pt["images"])
+    # e nel JSON esportato (base64)
+    js = os.path.join(TMP, "immagini.json")
+    assert w.export_json(js)
+    q, jimgs, jpdf = read_json(js)
+    assert sorted(jimgs) == sorted(imgs) and os.path.basename(jpdf) == "immagini.pdf"
     w.project.dirty = False
     w.close()
 
@@ -573,9 +593,9 @@ def tempi_medi_tra_eventi():
     assert f"{START}>{a['id']}" in pr.timing["intervals"]
     assert fmt(75) == "1:15" and fmt(3725) == "1:02:05" and fmt(-12, sign=True) == "−0:12"
     # salvataggio e riapertura
-    path = os.path.join(TMP, "tempi")
-    pr.save(path)
-    q = Project.load(path + ".sfollow")
+    path = os.path.join(TMP, "tempi.json")
+    pr.export_json(path)
+    q = read_json(path)[0]
     assert q.timing["runs"] == 4 and Timing(q).estimate(n["id"]) == 6
 
 
@@ -588,10 +608,10 @@ def progetto_salva_e_apri():
     p["commands"] = [{"target": 1, "cmd": "go", "values": {"pb": 2}}]
     pr.add_point(p)
     pr.overrides = {3: True}
-    path = os.path.join(TMP, "prova")
-    pr.save(path)
-    q = Project.load(path + ".sfollow")
-    assert q.pdf == PDF and q.points[0]["label"] == "LUCI 4" and q.overrides == {3: True}
+    path = os.path.join(TMP, "prova.json")
+    pr.export_json(path)
+    q, imgs, pdf = read_json(path)
+    assert pdf == PDF and q.points[0]["label"] == "LUCI 4" and q.overrides == {3: True} and imgs == {}
     assert q.points[0]["commands"][0]["values"]["pb"] == 2 and len(q.targets) == 2
 
 
@@ -747,9 +767,11 @@ def finestra_e_invio_osc():
         # riposizionamento all'inizio: tutto di nuovo attivo
         w.restart()
         assert w.point_state(A) == ("next", True) and w.point_state(C) == ("future", True)
-        # salva il progetto accanto al PDF
-        w.project.path = os.path.join(TMP, "copione.sfollow")
-        assert w.save() and os.path.isfile(w.project.path)
+        # salva una copia del copione con i dati dentro (il PDF dei test resta pulito)
+        copy = os.path.join(TMP, "copione-osc.pdf")
+        assert w.save_copy(copy) and w.project.pdf == copy and not w.project.dirty
+        from scriptfollower import pdf_store
+        assert pdf_store.read(copy)[0]["points"] and not pdf_store.has_data(PDF)
         w.close()
     finally:
         server.shutdown()
@@ -846,14 +868,14 @@ def interfaccia_tradotta():
 def progetto_lingua_salvata():
     p = Project()
     p.language = "sl"
-    path = os.path.join(TMP, "lingua.sfollow")
-    p.save(path)
-    assert Project.load(path).language == "sl"
+    path = os.path.join(TMP, "lingua.json")
+    p.export_json(path)
+    assert read_json(path)[0].language == "sl"
     import json
     data = json.load(open(path, encoding="utf-8"))
     data["language"] = "xx"
     json.dump(data, open(path, "w", encoding="utf-8"))
-    assert Project.load(path).language == "it"
+    assert read_json(path)[0].language == "it"
 
 
 @test
@@ -1053,6 +1075,131 @@ def finestra_ridimensionabile():
     d = PointDialog(p, w.project.targets, "contesto", w, project=w.project)
     assert d.minimumSizeHint().height() < 300          # contenuto scorrevole: sta anche su schermi bassi
     d.reject()
+    w.project.dirty = False
+    w.close()
+
+
+@test
+def dati_dello_show_nel_pdf():
+    """Salva nel PDF (copia di riserva pulita, niente storia), riapre, impostazioni dello show, JSON, vecchi .sfollow."""
+    import json
+    import shutil
+    import pymupdf
+    from scriptfollower import pdf_store
+    from scriptfollower.main_window import MainWindow
+    pdf = os.path.join(TMP, "show.pdf")
+    shutil.copy(PDF, pdf)
+    orig = open(pdf, "rb").read()
+    w = MainWindow()
+    w.open_pdf(pdf)
+    fp = w.doc.fingerprint
+    k = next(x.i for x in w.doc.words if x.text == "questo!")
+    p = new_point(k, "button")
+    p["label"] = "LUCI 1"
+    w.project.add_point(p)
+    w.project.aliases = {"Gesualdi": "gesù aldi"}
+    cfg = dict(w.audio_cfg)
+    cfg["threshold_db"] = -33.0
+    w.set_audio(cfg)
+    assert w.project.dirty
+    assert w.save()
+    bk = pdf_store.backup_path(pdf)
+    assert open(bk, "rb").read() == orig                       # copia di riserva = originale, byte per byte
+    size1 = os.path.getsize(pdf)
+    w._mark_dirty()
+    assert w.save() and os.path.getsize(pdf) == size1          # stessi dati: stessa dimensione, niente storia
+    data, _imgs = pdf_store.read(pdf)
+    assert data["points"][0]["label"] == "LUCI 1" and data["settings"]["audio"]["threshold_db"] == -33.0
+    with pymupdf.open(pdf) as d2:
+        assert d2.embfile_names().count(pdf_store.DATA_NAME) == 1 and d2.page_count == w.doc.n_pages
+    w.project.dirty = False
+    w.close()
+    # riaperto altrove: dati, pronunce e soglia del gate tornano; l'impronta del contenuto non cambia
+    QSettings("ScriptFollower", "ScriptFollower").remove("audio")
+    w = MainWindow()
+    assert w.audio_cfg["threshold_db"] != -33.0
+    w.open_pdf(pdf)
+    assert w.doc.fingerprint == fp and not w.project.dirty and w.project.saved
+    assert [x["label"] for x in w.project.points] == ["LUCI 1"] and w.project.aliases == {"Gesualdi": "gesù aldi"}
+    assert w.audio_cfg["threshold_db"] == -33.0
+    # tempi della replica: salvataggio automatico rimandato (non a ogni evento)
+    w._autosave_later()
+    assert w._autosave_timer.isActive() and w._timing_unsaved
+    w._autosave()
+    assert not w._timing_unsaved and not w._autosave_timer.isActive()
+    # esporta / importa JSON in un altro copione (stesso testo)
+    js = os.path.join(TMP, "show.scriptfollower.json")
+    assert w.export_json(js)
+    other = os.path.join(TMP, "show-copia.pdf")
+    shutil.copy(PDF, other)
+    w.open_pdf(other)
+    assert not w.project.points
+    assert w.import_json(js) and [x["label"] for x in w.project.points] == ["LUCI 1"] and w.project.dirty
+    w.project.dirty = False
+    w.close()
+    # la copia di riserva cancellata: la nuova è pulita (senza i dati)
+    os.remove(bk)
+    assert pdf_store.write(pdf, {"app": "scriptfollower"}) == bk and not pdf_store.has_data(bk)
+    # vecchio progetto .sfollow (versione 1) accanto al PDF: si importa
+    old = os.path.join(TMP, "vecchio.sfollow")
+    json.dump({"app": "scriptfollower", "version": 1, "pdf": "show-copia.pdf", "pdf_sha1": "",
+               "points": [{"id": "x1", "word": k, "kind": "note", "text": "vecchia nota"}]},
+              open(old, "w", encoding="utf-8"))
+    w = MainWindow()
+    assert w.import_json(old) and w.project.pdf == other and w.project.points[0]["text"] == "vecchia nota"
+    w.project.dirty = False
+    w.close()
+    # PDF protetto da password o in una cartella di sola lettura: errore chiaro, PDF intatto
+    enc = os.path.join(TMP, "protetto.pdf")
+    with pymupdf.open(PDF) as d3:
+        d3.save(enc, encryption=pymupdf.PDF_ENCRYPT_AES_256, owner_pw="a", user_pw="")
+    try:
+        pdf_store.write(enc, {"app": "scriptfollower"})
+        raise AssertionError("PDF protetto scritto")
+    except pdf_store.StoreError:
+        pass
+    if os.name == "posix" and os.geteuid() != 0:
+        ro = os.path.join(TMP, "solalettura")
+        os.makedirs(ro)
+        shutil.copy(PDF, ro)
+        shutil.copy(PDF, os.path.join(ro, "copione.originale.pdf"))
+        os.chmod(ro, 0o555)
+        try:
+            pdf_store.write(os.path.join(ro, "copione.pdf"), {"app": "scriptfollower"})
+            raise AssertionError("cartella di sola lettura scritta")
+        except pdf_store.StoreError:
+            pass
+        finally:
+            os.chmod(ro, 0o755)
+
+
+@test
+def vocabolari_su_file():
+    from scriptfollower.vocab import vocab_export, vocab_import
+    al = {"Gesualdi": "gesù aldi", "118": "centodiciotto", "Camilla": "camilla"}
+    for ext in ("json", "txt"):
+        path = os.path.join(TMP, f"voc.{ext}")
+        assert vocab_export(path, al, "it") == 3
+        back, lang = vocab_import(path)
+        assert back == al and lang == ("it" if ext == "json" else ""), (ext, back, lang)
+    csv = os.path.join(TMP, "voc.csv")
+    open(csv, "w", encoding="utf-8").write("# commento\nPaolo;pa olo\nNino\tni no\n\nvuota =\n")
+    assert vocab_import(csv)[0] == {"Paolo": "pa olo", "Nino": "ni no"}
+    plain = os.path.join(TMP, "voc-semplice.json")
+    open(plain, "w", encoding="utf-8").write('{"Rocco": "ro cco"}')
+    assert vocab_import(plain)[0] == {"Rocco": "ro cco"}
+    from scriptfollower.main_window import MainWindow
+    import scriptfollower.ui_vocab as uv
+    w = MainWindow()
+    w.open_pdf(PDF)
+    w.project.aliases = {"Rocco": "rocco", "Paolo": "paolo"}
+    old = uv.import_vocab_dialog
+    uv.import_vocab_dialog = lambda parent, mw: {"Paolo": "pa olo", "Nino": "ni no"}
+    try:
+        w.import_vocab()
+    finally:
+        uv.import_vocab_dialog = old
+    assert w.project.aliases == {"Rocco": "rocco", "Paolo": "pa olo", "Nino": "ni no"} and w.project.dirty
     w.project.dirty = False
     w.close()
 

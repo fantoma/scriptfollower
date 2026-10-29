@@ -1,16 +1,19 @@
 """Immagini e foto allegate ai pulsanti e alle note: miniature sotto le note e finestra di visualizzazione.
 
-Le immagini vengono copiate nella cartella «<nome del copione>_immagini» accanto al PDF, così il progetto si
-sposta insieme (PDF + .sfollow + cartella) su un altro computer o una chiavetta. Nel progetto si salva il
-percorso relativo alla cartella del PDF.
+Le immagini viaggiano dentro il PDF (e nel JSON esportato). Sul computer stanno in un deposito nella cartella
+dei dati, con un nome che comincia con l'impronta del contenuto («3f2a9c41b0d7_foto.jpg»): due immagini diverse
+non si sovrascrivono mai e la stessa immagine non si copia due volte. Nei punti si salva «media:<nome>».
+I vecchi progetti avevano la cartella «<copione>_immagini» accanto al PDF: quei percorsi si leggono ancora e
+al primo salvataggio passano nel deposito.
 """
+import hashlib
 import os
-import shutil
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QImageReader, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 from .i18n import _
+from .system import data_dir
 from .ui_util import fit_to_screen
 
 IMAGE_FILTER = "Immagini (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tif *.tiff);;Tutti i file (*)"
@@ -18,43 +21,85 @@ IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff")
 _thumbs = {}
 
 
+MEDIA = "media:"
+
+
+def store_dir():
+    return data_dir("immagini")
+
+
 def base_dir(project):
-    return os.path.dirname(project.pdf) if project.pdf else (os.path.dirname(project.path) if project.path else "")
+    return os.path.dirname(project.pdf) if project.pdf else ""
 
 
-def media_dir(project):
-    stem = os.path.splitext(os.path.basename(project.pdf or project.path or "copione"))[0]
-    return os.path.join(base_dir(project), f"{stem}_immagini")
+def _safe(name):
+    name = os.path.basename(str(name).replace("\\", "/"))
+    return "".join(c for c in name if c not in '<>:"/\\|?*\0').strip(" .") or "immagine"
 
 
-def abs_path(project, rel):
-    if os.path.isabs(rel):
-        return rel
-    return os.path.normpath(os.path.join(base_dir(project), rel.replace("/", os.sep)))
+def store_bytes(data, name):
+    """Mette i byte nel deposito e ritorna il riferimento «media:<impronta>_<nome>»."""
+    base = _safe(name)
+    h = hashlib.sha1(data).hexdigest()[:12]
+    fn = base if base[:13] == h + "_" else f"{h}_{base}"
+    path = os.path.join(store_dir(), fn)
+    if not os.path.isfile(path) or os.path.getsize(path) != len(data):
+        os.makedirs(store_dir(), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    return MEDIA + fn
+
+
+def abs_path(project, ref):
+    if ref.startswith(MEDIA):
+        return os.path.join(store_dir(), _safe(ref[len(MEDIA):]))
+    if os.path.isabs(ref):
+        return ref
+    return os.path.normpath(os.path.join(base_dir(project), ref.replace("/", os.sep)))
 
 
 def import_images(project, paths):
-    """Copia le immagini nella cartella del progetto. Ritorna i percorsi relativi (con «/»)."""
-    dest = media_dir(project)
-    os.makedirs(dest, exist_ok=True)
+    """Copia le immagini nel deposito. Ritorna i riferimenti «media:…»."""
     out = []
     for src in paths:
-        if not os.path.isfile(src):
-            continue
-        name = os.path.basename(src)
-        target = os.path.join(dest, name)
-        if os.path.abspath(src) != os.path.abspath(target):
-            stem, ext = os.path.splitext(name)
-            k = 2
-            while os.path.exists(target):
-                if os.path.getsize(target) == os.path.getsize(src):      # stessa immagine già copiata
-                    break
-                target = os.path.join(dest, f"{stem}-{k}{ext}")
-                k += 1
-            if not os.path.exists(target):
-                shutil.copy2(src, target)
-        out.append(os.path.relpath(target, base_dir(project)).replace(os.sep, "/"))
+        if os.path.isfile(src):
+            with open(src, "rb") as f:
+                out.append(store_bytes(f.read(), os.path.basename(src)))
     return out
+
+
+def gather(project):
+    """Immagini da incorporare: ({nome: bytes}, [riferimenti mancanti]). I vecchi percorsi accanto al PDF
+    passano nel deposito (il riferimento nel punto diventa «media:…»)."""
+    images, missing = {}, []
+    for p in project.points:
+        refs = []
+        for ref in p.get("images") or []:
+            path = abs_path(project, ref)
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+            except OSError:
+                missing.append(ref)
+                refs.append(ref)
+                continue
+            new = ref if ref.startswith(MEDIA) else store_bytes(data, os.path.basename(path))
+            images[new[len(MEDIA):]] = data
+            refs.append(new)
+        if refs != (p.get("images") or []):
+            p["images"] = refs
+    return images, missing
+
+
+def restore(images):
+    """Immagini lette dal PDF o dal JSON: nel deposito (quelle che mancano)."""
+    for name, data in (images or {}).items():
+        try:
+            store_bytes(data, name)
+        except OSError:
+            pass
 
 
 def load_pixmap(path, size=None):

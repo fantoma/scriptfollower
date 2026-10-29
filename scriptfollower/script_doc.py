@@ -69,10 +69,15 @@ def file_sha1(path):
 class ScriptDoc:
     def __init__(self, path):
         self.path = os.path.abspath(path)
-        self.pdf = pymupdf.open(self.path)
+        # aperto dalla memoria, non dal file: così il PDF si può riscrivere (salvataggio dei dati dello show)
+        # anche mentre è aperto, pure su Windows
+        with open(self.path, "rb") as f:
+            raw = f.read()
+        self.pdf = pymupdf.open(stream=raw, filetype="pdf")
         if self.pdf.needs_pass:
             raise ValueError(_("il PDF è protetto da password"))
-        self.sha1 = file_sha1(self.path)
+        self.sha1 = hashlib.sha1(raw).hexdigest()       # impronta del file (solo per i vecchi .sfollow)
+        del raw
         self.page_sizes = [(p.rect.width, p.rect.height) for p in self.pdf]
         self.words = []
         self.lines = []
@@ -115,6 +120,18 @@ class ScriptDoc:
                 line.x1, line.y1 = max(line.x1, x1), max(line.y1, y1)
             self.page_words.append((first, len(self.words)))
         self._auto_rules()
+        # impronta del contenuto (pagine e parole): non cambia quando nel PDF si salvano i dati dello show
+        h = hashlib.sha1()
+        for w_, h_ in self.page_sizes:
+            h.update(f"{w_:.1f}x{h_:.1f};".encode())
+        for w in self.words:
+            h.update(f"{w.page}:{w.x0:.1f},{w.y0:.1f}:{w.text}\n".encode("utf-8"))
+        self.fingerprint = h.hexdigest()
+
+    def embedded(self):
+        """Dati dello show salvati nel PDF: (dati, immagini) oppure (None, {})."""
+        from .pdf_store import read
+        return read(self.pdf)
 
     @staticmethod
     def _styled(styles, x0, y0, x1, y1):

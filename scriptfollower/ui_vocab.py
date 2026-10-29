@@ -47,6 +47,18 @@ class VocabDialog(QDialog):
         self.add_word.returnPressed.connect(self._add_manual)
         row.addWidget(self.add_word)
         v.addLayout(row)
+        io = QHBoxLayout()
+        imp = QPushButton(_("Importa vocabolario…"))
+        imp.setToolTip(_("Aggiunge le pronunce di un file (JSON o testo «parola = pronuncia»); quelle del file "
+                         "sostituiscono le pronunce delle stesse parole"))
+        imp.clicked.connect(self.import_file)
+        exp = QPushButton(_("Esporta vocabolario…"))
+        exp.setToolTip(_("Salva le pronunce in un file, per usarle in un altro copione"))
+        exp.clicked.connect(self.export_file)
+        io.addWidget(imp)
+        io.addWidget(exp)
+        io.addStretch(1)
+        v.addLayout(io)
         self.msg = QLabel()
         self.msg.setWordWrap(True)
         v.addWidget(self.msg)
@@ -206,3 +218,65 @@ class VocabDialog(QDialog):
 
     def aliases(self):
         return {w: s for _r, w, s in self._rows() if s}
+
+    # ------------------------------------------------------------ vocabolari su file
+    def import_file(self):
+        al = import_vocab_dialog(self, self.mw)
+        if al is None:
+            return
+        cur = self.aliases()
+        unknown = [w for _r, w, s in self._rows() if not s]
+        cur.update(al)
+        self._fill(cur, unknown)
+        self.msg.setText(_("Importate {0} pronunce").format(len(al)))
+        self.msg.setStyleSheet("color:#6c6;")
+
+    def export_file(self):
+        n = export_vocab_dialog(self, self.mw, self.aliases())
+        if n is not None:
+            self.msg.setText(_("Esportate {0} pronunce").format(n))
+            self.msg.setStyleSheet("color:#6c6;")
+
+
+def import_vocab_dialog(parent, mw):
+    """Chiede il file e ritorna {parola: pronuncia} (None se annullato o illeggibile)."""
+    import os
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from .vocab import VOCAB_FILTER, vocab_import
+    start = os.path.dirname(mw.project.pdf) if mw.project.pdf else os.path.expanduser("~")
+    path, _f = QFileDialog.getOpenFileName(parent, _("Importa vocabolario"), start, _(VOCAB_FILTER))
+    if not path:
+        return None
+    try:
+        al, lang = vocab_import(path)
+    except (OSError, ValueError, AttributeError) as e:
+        QMessageBox.warning(parent, _("Importa vocabolario"), _("File non letto: {0}").format(e))
+        return None
+    if lang and lang != mw.project.language:
+        r = QMessageBox.question(parent, _("Importa vocabolario"), _(
+            "Il vocabolario è per la lingua «{0}», il copione è in «{1}». Importarlo lo stesso?").format(
+            LANGS.get(lang, {}).get("name", lang), LANGS[mw.project.language]["name"]),
+            QMessageBox.Yes | QMessageBox.No)
+        if r != QMessageBox.Yes:
+            return None
+    return al
+
+
+def export_vocab_dialog(parent, mw, aliases):
+    import os
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    from .vocab import VOCAB_FILTER, vocab_export
+    if not aliases:
+        QMessageBox.information(parent, _("Esporta vocabolario"), _("Non ci sono pronunce da esportare."))
+        return None
+    stem = os.path.splitext(mw.project.pdf)[0] if mw.project.pdf else os.path.expanduser("~/vocabolario")
+    path, _f = QFileDialog.getSaveFileName(parent, _("Esporta vocabolario"), stem + ".vocabolario.json", _(VOCAB_FILTER))
+    if not path:
+        return None
+    if not os.path.splitext(path)[1]:
+        path += ".json"
+    try:
+        return vocab_export(path, aliases, mw.project.language)
+    except OSError as e:
+        QMessageBox.warning(parent, _("Esporta vocabolario"), _('Salvataggio non riuscito:\n{0}').format(e))
+        return None

@@ -15,7 +15,8 @@ from .align import Aligner, normalize
 from .audio_file import is_audio
 from .audio_input import AudioInput, audio_settings
 from .osc import clean_targets, describe, migrate_commands, send_commands
-from .project import EXT, FILE_FILTER, Cueing, Project, new_point
+from . import pdf_store
+from .project import EXT, FILE_FILTER, JSON_EXT, SHOW_AUDIO, SHOW_REC, Cueing, Project, new_point, read_json
 from .languages import LANGS, ORDER, find_model, installed, model_lang
 from .recognizer import Recognizer
 from .script_doc import ScriptDoc
@@ -61,6 +62,11 @@ class MainWindow(QMainWindow):
         self.unknown_words = set()           # parole del copione che il modello non conosce
         self.sim = None
         self.audiotest = None                  # finestra «Prova con un file audio»
+        self._timing_unsaved = False
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(30000)
+        self._autosave_timer.timeout.connect(self._autosave)
         self.test_speed = 1.0
         self._blink = True
 
@@ -338,9 +344,11 @@ class MainWindow(QMainWindow):
 
         m = mb.addMenu(_('&File'))
         add(m, _('Apri copione PDF…'), self.open_pdf_dialog, "Ctrl+O")
-        add(m, _('Apri progetto…'), self.open_project_dialog, "Ctrl+Shift+O")
-        add(m, _('Salva'), self.save, "Ctrl+S")
-        add(m, _('Salva con nome…'), self.save_as, "Ctrl+Shift+S")
+        add(m, _('Salva nel PDF'), self.save, "Ctrl+S")
+        add(m, _('Salva copione con nome…'), self.save_as, "Ctrl+Shift+S")
+        m.addSeparator()
+        add(m, _('Esporta i dati dello show (JSON)…'), self.export_json, "Ctrl+Shift+E")
+        add(m, _('Importa i dati dello show (JSON)…'), self.import_json_dialog, "Ctrl+Shift+I")
         m.addSeparator()
         add(m, _('Esci'), self.close, "Ctrl+Q")
 
@@ -348,6 +356,8 @@ class MainWindow(QMainWindow):
         add(m, _('Preparazione / Spettacolo'), lambda: self.set_mode(not self.prep), "Ctrl+E")
         m.addSeparator()
         add(m, _('Vocabolario del copione…'), self.vocab_dialog, "Ctrl+Shift+V")
+        add(m, _('Importa vocabolario…'), self.import_vocab)
+        add(m, _('Esporta vocabolario…'), self.export_vocab)
         add(m, _('Ripristina le parole escluse automaticamente'), self.reset_overrides)
         add(m, _('Elimina tutti i punti…'), self.delete_all_points)
 
@@ -413,8 +423,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(text, 8000)
 
     def _update_title(self):
-        name = os.path.basename(self.project.path) if self.project.path else (
-            os.path.basename(self.project.pdf) if self.project.pdf else _("nessun copione"))
+        name = os.path.basename(self.project.pdf) if self.project.pdf else _("nessun copione")
         self.setWindowTitle(f"{APP_NAME} — {name}{' *' if self.project.dirty else ''}")
 
     def _listen_look(self, loading=False):
@@ -483,18 +492,24 @@ class MainWindow(QMainWindow):
 
     # =========================================================== file
     def _startup_open(self, path):
+        if self.doc is not None:                 # già aperto qualcosa (trascinamento, macOS, test)
+            return
         if path:
             self.open_any(path)
             return
-        last = self.qs.value("last_project")
+        last = self.qs.value("last_pdf")
         if last and os.path.isfile(last):
-            self.open_project(last)
+            self.open_pdf(last)
+            return
+        old = self.qs.value("last_project")                 # versioni precedenti: progetto .sfollow
+        if old and os.path.isfile(old):
+            self.import_json(old)
 
     def open_any(self, path):
         if is_audio(path):
             self.audio_test_dialog(path)
-        elif path.lower().endswith(EXT):
-            self.open_project(path)
+        elif path.lower().endswith((EXT, JSON_EXT)):
+            self.import_json(path)
         else:
             self.open_pdf(path)
 
@@ -515,69 +530,259 @@ class MainWindow(QMainWindow):
         if p:
             self.open_pdf(p)
 
-    def open_project_dialog(self):
-        if not self._confirm_discard():
-            return
-        start = os.path.dirname(self.project.path or self.project.pdf or os.path.expanduser("~"))
-        p, _f = QFileDialog.getOpenFileName(self, _('Apri progetto'), start, _(FILE_FILTER))
-        if p:
-            self.open_project(p)
-
-    def open_pdf(self, path):
-        side = os.path.splitext(path)[0] + EXT
-        if os.path.isfile(side):
-            r = QMessageBox.question(self, APP_NAME, _("Accanto al PDF c'è il progetto «{0}» con i suoi pulsanti e note. Aprirlo?").format(os.path.basename(side)), QMessageBox.Yes | QMessageBox.No)
-            if r == QMessageBox.Yes:
-                self.open_project(side)
-                return
+    def _open_doc(self, path):
         try:
-            doc = ScriptDoc(path)
+            return ScriptDoc(path)
         except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, APP_NAME, _('Impossibile aprire il PDF:\n{0}').format(e))
+            return None
+
+    def open_pdf(self, path):
+        """Apre il copione con i dati dello show salvati dentro (se ci sono)."""
+        doc = self._open_doc(path)
+        if doc is None:
             return
+        try:
+            data, images = doc.embedded()
+        except ValueError as e:
+            QMessageBox.warning(self, APP_NAME, str(e))
+            data, images = None, {}
+        if data is not None:
+            try:
+                p = Project.from_dict(data)
+            except Exception as e:  # noqa: BLE001
+                QMessageBox.warning(self, APP_NAME, _('Impossibile aprire il progetto:\n{0}').format(e))
+                p = None
+            if p is not None:
+                from .ui_images import restore
+                restore(images)
+                p.saved = True
+                self._adopt(p, doc, imported=False)
+                return
+        side = os.path.splitext(path)[0] + EXT                   # versioni precedenti: .sfollow accanto
+        if os.path.isfile(side):
+            r = QMessageBox.question(self, APP_NAME, _("Accanto al PDF c'è il progetto «{0}» con i suoi pulsanti e note. Aprirlo?").format(os.path.basename(side)), QMessageBox.Yes | QMessageBox.No)
+            if r == QMessageBox.Yes and self._import_into(side, doc):
+                return
         p = Project()
-        p.pdf = doc.path
-        p.pdf_sha1 = doc.sha1
         p.targets = clean_targets(self.project.targets)
         p.language = self.project.language           # un copione nuovo: la stessa lingua dell'ultimo
+        self._adopt(p, doc, imported=False)
         p.dirty = True
-        self._set_project(p, doc)
+        self._update_title()
+        if pdf_store.is_backup(path):
+            self.status(_("Questa è la copia di riserva pulita del copione: i dati dello show stanno nell'altro PDF"))
         if not doc.tokens:
             QMessageBox.warning(self, APP_NAME, _("In questo PDF non c'è testo selezionabile (forse è una scansione): serve un PDF esportato da Word / LibreOffice, oppure passato da un OCR."))
 
-    def open_project(self, path):
-        try:
-            p = Project.load(path)
-        except Exception as e:  # noqa: BLE001
-            QMessageBox.warning(self, APP_NAME, _('Impossibile aprire il progetto:\n{0}').format(e))
-            return
-        pdf = p.pdf
-        if not pdf or not os.path.isfile(pdf):
-            QMessageBox.information(self, APP_NAME, _("Il PDF del progetto non si trova:\n{0}\n\nIndica dov'è.").format(pdf))
-            pdf, _f = QFileDialog.getOpenFileName(self, _("Dov'è il copione PDF?"), os.path.dirname(path), _(PDF_FILTER))
-            if not pdf:
-                return
-            p.pdf = pdf
-            p.dirty = True
-        try:
-            doc = ScriptDoc(pdf)
-        except Exception as e:  # noqa: BLE001
-            QMessageBox.warning(self, APP_NAME, _('Impossibile aprire il PDF:\n{0}').format(e))
-            return
-        if p.pdf_sha1 and p.pdf_sha1 != doc.sha1:
+    def _adopt(self, p, doc, imported):
+        """Collega i dati p al copione doc: controlla che il PDF sia lo stesso e applica le impostazioni."""
+        changed = bool((p.fingerprint and p.fingerprint != doc.fingerprint)
+                       or (not p.fingerprint and p.pdf_sha1 and p.pdf_sha1 != doc.sha1))
+        if changed and p.points:
             QMessageBox.warning(self, APP_NAME, _('Il PDF è cambiato da quando il progetto è stato salvato: pulsanti e note sono agganciati alle parole per posizione e potrebbero risultare spostati. Controllali in Preparazione.'))
-            p.pdf_sha1 = doc.sha1
-            p.dirty = True
-        if any(pt["word"] >= len(doc.words) for pt in p.points):
+        p.pdf = doc.path
+        p.fingerprint = doc.fingerprint
+        p.pdf_sha1 = ""
+        if doc.words and any(pt["word"] >= len(doc.words) for pt in p.points):
             for pt in p.points:
                 pt["word"] = min(pt["word"], len(doc.words) - 1)
+        if p.settings:
+            self._apply_show_settings(p.settings)
         self._set_project(p, doc)
-        self.qs.setValue("last_project", p.path)
+        p.dirty = bool(imported or changed)
+        self._update_title()
+        self.qs.setValue("last_pdf", doc.path)
+
+    # ------------------------------------------------------------ salvataggio nel PDF
+    def _snapshot(self):
+        """Dati da salvare: il progetto con le parole incluse/escluse e le impostazioni dello show."""
+        from .ui_images import gather
+        p = self.project
+        p.overrides = dict(self.doc.overrides) if self.doc else {}
+        p.settings = self._show_settings()
+        images, missing = gather(p)
+        if missing:
+            self.status(_("Immagini non trovate (non salvate): {0}").format(
+                ", ".join(os.path.basename(m) for m in missing)))
+        return p.to_dict(), images
+
+    def save(self, quiet=False):
+        """Salva i dati dello show dentro il PDF del copione (prima volta: copia di riserva pulita)."""
+        if not self.project.pdf or self.doc is None:
+            return False
+        self._autosave_timer.stop()
+        data, images = self._snapshot()
+        try:
+            made = pdf_store.write(self.project.pdf, data, images)
+        except pdf_store.StoreError as e:
+            if quiet:
+                self._mark_dirty()
+                self.status(_("Salvataggio non riuscito: {0}").format(e))
+                return False
+            r = QMessageBox.warning(self, APP_NAME, _("I dati non si possono salvare nel PDF:\n{0}\n\nPuoi salvare una copia del copione altrove (File › Salva copione con nome…) oppure esportare i dati in un file JSON.").format(e), QMessageBox.Save | QMessageBox.Cancel)
+            if r == QMessageBox.Save:
+                return self.save_as()
+            return False
+        except OSError as e:
+            if not quiet:
+                QMessageBox.warning(self, APP_NAME, _('Salvataggio non riuscito:\n{0}').format(e))
+            return False
+        self.project.dirty = False
+        self.project.saved = True
+        self._timing_unsaved = False
+        self.qs.setValue("last_pdf", self.project.pdf)
+        self._qs_save("osc_targets", self.project.targets)
+        self._update_title()
+        if made:
+            self.status(_("Salvato nel PDF «{0}». Copia di riserva del copione originale: «{1}»").format(
+                os.path.basename(self.project.pdf), os.path.basename(made)))
+        elif not quiet:
+            self.status(_("Salvato nel PDF «{0}»").format(os.path.basename(self.project.pdf)))
+        return True
+
+    def save_as(self):
+        """Salva una copia del copione con i dati dello show dentro; da qui in poi si lavora su quella."""
+        if not self.project.pdf or self.doc is None:
+            return False
+        stem = os.path.splitext(self.project.pdf)[0]
+        p, _f = QFileDialog.getSaveFileName(self, _("Salva copione con nome"), stem + " (Script Follower).pdf",
+                                            _(PDF_FILTER))
+        if not p:
+            return False
+        if not p.lower().endswith(".pdf"):
+            p += ".pdf"
+        return self.save_copy(p)
+
+    def save_copy(self, p):
+        p = os.path.abspath(p)
+        if p == os.path.abspath(self.project.pdf):
+            return self.save()
+        data, images = self._snapshot()
+        data["pdf"] = os.path.basename(p)
+        try:
+            pdf_store.write(self.project.pdf, data, images, dest=p)
+        except (pdf_store.StoreError, OSError) as e:
+            QMessageBox.warning(self, APP_NAME, _('Salvataggio non riuscito:\n{0}').format(e))
+            return False
+        self.project.pdf = p
+        self.doc.path = p
+        self.project.dirty = False
+        self.project.saved = True
+        self._timing_unsaved = False
+        self.qs.setValue("last_pdf", p)
+        self._update_title()
+        self.status(_("Salvato nel PDF «{0}»").format(os.path.basename(p)))
+        return True
+
+    def _autosave_later(self):
+        """Tempi registrati durante la replica: si salvano nel PDF con calma (al massimo ogni 30 s)."""
+        self._timing_unsaved = True
+        if not self._autosave_timer.isActive():
+            self._autosave_timer.start()
+
+    def _autosave(self):
+        if self._timing_unsaved and self.project.saved and not self.project.dirty:
+            self.save(quiet=True)
+
+    # ------------------------------------------------------------ esporta / importa JSON
+    def export_json(self, path=None):
+        if self.doc is None:
+            self.status(_('Apri prima un copione'))
+            return False
+        if not path:
+            stem = os.path.splitext(self.project.pdf)[0]
+            path, _f = QFileDialog.getSaveFileName(self, _("Esporta i dati dello show"),
+                                                   stem + ".scriptfollower.json",
+                                                   _("Dati di Script Follower (*.json);;Tutti i file (*)"))
+            if not path:
+                return False
+        if not path.lower().endswith(JSON_EXT):
+            path += JSON_EXT
+        data, images = self._snapshot()
+        try:
+            self.project.export_json(path, images)
+        except OSError as e:
+            QMessageBox.warning(self, APP_NAME, _('Salvataggio non riuscito:\n{0}').format(e))
+            return False
+        self.status(_("Esportati i dati dello show in «{0}» ({1} immagini)").format(os.path.basename(path), len(images)))
+        return True
+
+    def import_json_dialog(self):
+        start = os.path.dirname(self.project.pdf) if self.project.pdf else os.path.expanduser("~")
+        p, _f = QFileDialog.getOpenFileName(self, _("Importa i dati dello show"), start, _(FILE_FILTER))
+        if p:
+            self.import_json(p)
+
+    def import_json(self, path):
+        """Dati da un JSON esportato (o da un vecchio .sfollow): nel copione aperto, oppure in quello indicato."""
+        try:
+            _p, _imgs, pdf = read_json(path)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, APP_NAME, _('Impossibile aprire il progetto:\n{0}').format(e))
+            return False
+        other = bool(pdf and os.path.isfile(pdf) and self.project.pdf
+                     and os.path.abspath(pdf) != os.path.abspath(self.project.pdf))
+        if self.doc is None or (other and self._ask_open_other(pdf)):
+            if not self._confirm_discard():
+                return False
+            if not pdf or not os.path.isfile(pdf):
+                QMessageBox.information(self, APP_NAME, _("Il PDF del progetto non si trova:\n{0}\n\nIndica dov'è.").format(pdf or "?"))
+                pdf, _f = QFileDialog.getOpenFileName(self, _("Dov'è il copione PDF?"), os.path.dirname(path), _(PDF_FILTER))
+                if not pdf:
+                    return False
+            doc = self._open_doc(pdf)
+            if doc is None:
+                return False
+            return self._import_into(path, doc)
+        if self.project.points and QMessageBox.question(
+                self, APP_NAME, _("Sostituire pulsanti, note e impostazioni del copione aperto con quelli di «{0}»?").format(
+                    os.path.basename(path)), QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return False
+        return self._import_into(path, self.doc)
+
+    def _ask_open_other(self, pdf):
+        return QMessageBox.question(self, APP_NAME, _("Questi dati sono del copione «{0}», non di quello aperto. Aprire «{0}»?").format(
+            os.path.basename(pdf)), QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes
+
+    def _import_into(self, path, doc):
+        from .ui_images import restore
+        try:
+            p, images, _pdf = read_json(path)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, APP_NAME, _('Impossibile aprire il progetto:\n{0}').format(e))
+            return False
+        restore(images)
+        self._adopt(p, doc, imported=True)
+        self.status(_("Importati i dati di «{0}»: salva (Ctrl+S) per metterli nel PDF").format(os.path.basename(path)))
+        return True
+
+    # ------------------------------------------------------------ impostazioni dello show
+    def _show_settings(self):
+        return {"audio": {k: self.audio_cfg[k] for k in SHOW_AUDIO},
+                "recognition": {k: self.rec_cfg[k] for k in SHOW_REC},
+                "panel": dict(self.panel_cfg)}
+
+    def _apply_show_settings(self, st):
+        a = dict(self.audio_cfg)
+        a.update({k: v for k, v in (st.get("audio") or {}).items() if k in SHOW_AUDIO})
+        if audio_settings(a) != self.audio_cfg:
+            self.set_audio(a, mark=False)
+        r = dict(self.rec_cfg)
+        r.update({k: v for k, v in (st.get("recognition") or {}).items() if k in SHOW_REC})
+        r = rec_settings(r)
+        if r != self.rec_cfg:
+            self.rec_cfg = r
+            self._qs_save("recognition", r)
+        pn = panel_settings(st.get("panel") or self.panel_cfg)
+        if pn != self.panel_cfg:
+            self.panel_cfg = pn
+            self._qs_save("panel", pn)
 
     def _set_project(self, p, doc):
         if self.listening:
             self.stop_listen()
-        if self.doc is not None:
+        if self.doc is not None and self.doc is not doc:
             self.doc.close()
         self.project = p
         p.targets = clean_targets(p.targets)
@@ -603,38 +808,13 @@ class MainWindow(QMainWindow):
         n_b = sum(1 for x in p.points if x["kind"] == "button")
         self.status(_('{0}: {1} pagine, {2} parole da seguire, {3} pulsanti, {4} note').format(os.path.basename(doc.path), doc.n_pages, len(doc.tokens), n_b, len(p.points) - n_b))
 
-    def save(self):
-        if not self.project.pdf:
-            return False
-        if not self.project.path:
-            return self.save_as()
-        try:
-            self.project.overrides = dict(self.doc.overrides) if self.doc else {}
-            self.project.save()
-        except OSError as e:
-            QMessageBox.warning(self, APP_NAME, _('Salvataggio non riuscito:\n{0}').format(e))
-            return False
-        self.qs.setValue("last_project", self.project.path)
-        self._qs_save("osc_targets", self.project.targets)
-        self._update_title()
-        self.status(_('Salvato {0}').format(self.project.path))
-        return True
-
-    def save_as(self):
-        if not self.project.pdf:
-            return False
-        start = self.project.path or os.path.splitext(self.project.pdf)[0] + EXT
-        p, _f = QFileDialog.getSaveFileName(self, _('Salva progetto'), start, _(FILE_FILTER))
-        if not p:
-            return False
-        self.project.path = p if p.endswith(EXT) else p + EXT
-        return self.save()
-
     def closeEvent(self, e):
         if not self._confirm_discard():
             e.ignore()
             return
         self.qs.setValue("geometry", self.saveGeometry())
+        if self._timing_unsaved:
+            self._autosave()
         self.stop_listen()
         if self.audiotest is not None:
             self.audiotest.close()
@@ -1007,11 +1187,8 @@ class MainWindow(QMainWindow):
 
     def _timing_event(self, pid):
         if self.timing.event(pid) is not None:
-            if self.project.path and not self.project.dirty:
-                try:                             # i tempi si salvano da soli se non ci sono altre modifiche
-                    self.project.save()
-                except OSError:
-                    self._mark_dirty()
+            if self.project.saved and not self.project.dirty:
+                self._autosave_later()           # i tempi si salvano da soli se non ci sono altre modifiche
             else:
                 self._mark_dirty()
 
@@ -1276,7 +1453,7 @@ class MainWindow(QMainWindow):
             import subprocess
             import sys
             self.project.dirty = False
-            path = self.project.path
+            path = self.project.pdf
             args = [sys.executable] + ([] if getattr(sys, "frozen", False) else ["-m", "scriptfollower"])
             if os.environ.get("APPIMAGE"):
                 args = [os.environ["APPIMAGE"]]
@@ -1292,14 +1469,41 @@ class MainWindow(QMainWindow):
         if dlg.exec() == QDialog.Accepted:
             al = dlg.aliases()
             if al != self.project.aliases:
-                self.project.aliases = al
-                self.doc.set_aliases(al)
-                self._mark_dirty()
-                self._rebuild_aligner()
-                if self.listening:               # il vocabolario cambia
-                    self.stop_listen()
-                    self.start_listen()
+                self._set_aliases(al)
                 self.status(_('Pronunce aggiornate: {0} parole').format(len(al)))
+
+    def _set_aliases(self, al):
+        if al == self.project.aliases:
+            return
+        self.project.aliases = al
+        self.doc.set_aliases(al)
+        self._mark_dirty()
+        self._rebuild_aligner()
+        if self.listening:                       # il vocabolario cambia
+            self.stop_listen()
+            self.start_listen()
+
+    def import_vocab(self):
+        if self.doc is None:
+            self.status(_('Apri prima un copione'))
+            return
+        from .ui_vocab import import_vocab_dialog
+        al = import_vocab_dialog(self, self)
+        if al is None:
+            return
+        merged = dict(self.project.aliases)
+        merged.update(al)
+        self._set_aliases(merged)
+        self.status(_("Importate {0} pronunce").format(len(al)))
+
+    def export_vocab(self):
+        if self.doc is None:
+            self.status(_('Apri prima un copione'))
+            return
+        from .ui_vocab import export_vocab_dialog
+        n = export_vocab_dialog(self, self, self.project.aliases)
+        if n is not None:
+            self.status(_("Esportate {0} pronunce").format(n))
 
     def reset_overrides(self):
         if self.doc is None:
@@ -1314,8 +1518,11 @@ class MainWindow(QMainWindow):
     def settings_dialog(self, page=0):
         SettingsDialog(self, page).exec()
 
-    def set_audio(self, cfg):
+    def set_audio(self, cfg, mark=True):
+        old = self.audio_cfg
         self.audio_cfg = audio_settings(cfg)
+        if mark and self.doc is not None and any(old[k] != self.audio_cfg[k] for k in SHOW_AUDIO):
+            self._mark_dirty()                   # soglia, hold, guadagno: viaggiano con lo show
         self.audio.configure(self.audio_cfg)
         self.meter.set_threshold(self.audio_cfg["threshold_db"])
         self.meter.gate_on = self.audio_cfg["gate_on"]
@@ -1339,6 +1546,9 @@ class MainWindow(QMainWindow):
         self.status(_('Soglia del gate: {0:.1f} dBFS').format(db))
 
     def apply_settings(self, targets, rec, panel=None):
+        if self.doc is not None and ((panel is not None and panel != self.panel_cfg)
+                                     or any(rec[k] != self.rec_cfg[k] for k in SHOW_REC)):
+            self._mark_dirty()
         if panel is not None and panel != self.panel_cfg:
             self.panel_cfg = panel
             self._qs_save("panel", panel)
@@ -1536,8 +1746,10 @@ luci), righe tipo «MUSICA:», l'indice. Si cambiano con il menu sulla parola.</
 quella parola. Ogni pulsante può inviare <b>più comandi OSC</b>, verso i <b>profili OSC</b>
 (Impostazioni › Profili OSC, anche con la ricerca in rete), e avere note e immagini. I plugin (CueStage, QLab, SCS, ChamSys MagicQ, Generico) offrono i comandi già
 pronti. In preparazione un clic sul pulsante lo modifica; tasto destro = modifica, prova, elimina.</p>
-<p>Salva il progetto (<b>.sfollow</b>) accanto al PDF: contiene pulsanti, note, parole incluse/escluse e i
-profili OSC.</p>
+<p><b>File › Salva nel PDF</b> (Ctrl+S) mette dentro il copione pulsanti, note, immagini, parole
+incluse/escluse, pronunce, profili OSC, tempi e le impostazioni dello show (gate, inseguimento, riquadro): basta
+portarsi il PDF. Al primo salvataggio si crea la copia di riserva pulita «<i>copione</i>.originale.pdf». Con
+<b>Esporta / Importa i dati dello show</b> gli stessi dati vanno in un file JSON (immagini comprese).</p>
 <h3>Spettacolo</h3>
 <p><b>ASCOLTA</b> (F5) avvia il riconoscimento dal canale scelto (Impostazioni › Audio e gate). La riga
 detta è evidenziata in giallo e la vista la segue. I punti già passati diventano grigi; il prossimo pulsante e la

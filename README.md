@@ -59,8 +59,9 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
     modello italiano grande, che ha più parole ma non permette di limitare il vocabolario.
 - **Immagini e foto** nei pulsanti e nelle note: nella finestra del punto c'è **＋ Aggiungi…**, oppure le
   trascini dentro. Si possono riordinare con ◀ ▶ e togliere con Rimuovi.
-  - Vengono copiate nella cartella `<nome del copione>_immagini` accanto al PDF: PDF, `.sfollow` e cartella
-    si spostano insieme.
+  - Salvando, vengono **incorporate nel PDF** (e nel JSON esportato): non serve portarsi dietro cartelle. Sul
+    computer stanno in un deposito nella cartella dei dati, con un nome che comincia con l'impronta del
+    contenuto, così due foto con lo stesso nome non si confondono.
   - In scena compaiono come **miniature sotto la nota** del prossimo evento (e della prossima nota). Un clic
     le apre in una **finestra a parte**: ◀ ▶ per scorrerle, F per lo schermo intero. Le foto sono ruotate
     secondo i dati EXIF.
@@ -73,8 +74,30 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
 - Ogni pulsante ha un nome, una nota facoltativa e **più comandi OSC**, inviati nell'ordine. Ogni comando va
   a uno dei **due profili OSC** e può essere un comando già pronto del plugin, con i suoi parametri, oppure un
   indirizzo con argomenti scritti a mano. Il pulsante «Prova: invia adesso» manda i comandi subito.
-- **Salva** crea `copione.sfollow` accanto al PDF, con pulsanti, note, parole incluse o escluse e profili OSC.
-  Se il PDF cambia, l'app avvisa che i punti potrebbero essere spostati.
+- **File › Salva nel PDF** (Ctrl+S) mette **dentro il copione** tutti i dati dello show: pulsanti, note,
+  immagini, parole incluse o escluse, zone improvvisate, pronunce, profili OSC, lingua, tempi registrati e le
+  **impostazioni dello show** (gate: soglia, hold, guadagno; inseguimento; riquadro «Prossimo evento»). Scheda
+  audio, canali e preascolto restano invece sul computer, perché cambiano da una macchina all'altra.
+  - I dati sono allegati standard del PDF (`scriptfollower.json` e `scriptfollower-img/…`): il copione si apre
+    e si stampa come prima in qualunque lettore; Acrobat li mostra nel pannello degli allegati.
+  - Ogni salvataggio **sostituisce** i dati precedenti e riscrive il PDF da capo: nel file non resta nessuna
+    storia e la dimensione non cresce. La scrittura passa per un file temporaneo, così un'interruzione non
+    rovina mai il copione.
+  - Al primo salvataggio si crea la **copia di riserva pulita** `copione.originale.pdf`: il PDF originale,
+    identico, senza dati di Script Follower.
+  - Riaprendo il PDF, anche su un altro computer, tutto torna com'era, immagini comprese.
+  - Se il PDF non si può scrivere (protetto da password, firmato digitalmente, aperto in un altro programma su
+    Windows, cartella in sola lettura) l'app lo dice e propone **File › Salva copione con nome…**, che crea
+    una copia del PDF con i dati dentro.
+  - **File › Esporta / Importa i dati dello show (JSON)**: gli stessi dati in un file JSON, con le immagini
+    incorporate, per archiviarli o passarli a un collega. L'importazione accetta anche i vecchi `.sfollow`,
+    e aprendo un PDF che ha accanto un `.sfollow` l'app propone di importarlo.
+  - Se il testo del PDF cambia (riesportato da Word, per esempio) l'app avvisa che i punti potrebbero essere
+    spostati: il controllo riguarda solo pagine e parole, non i dati salvati dentro.
+- **Modifica › Importa / Esporta vocabolario…** (anche dalla finestra «Vocabolario del copione»): le pronunce
+  in un file **JSON** oppure di **testo** con una riga `parola = pronuncia` per voce (si leggono anche righe
+  separate da tabulazione o «;»). Importando, le pronunce del file si aggiungono a quelle del copione e
+  sostituiscono quelle delle stesse parole.
 
 ## Spettacolo
 
@@ -116,7 +139,8 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
   - I salti a mano e i salti lunghi del riconoscimento non producono misure.
   - Le misure sono legate alla coppia «evento precedente → evento», quindi aggiungere un punto in mezzo
     non le confonde.
-  - I tempi stanno nel file `.sfollow` e, se non ci sono altre modifiche in sospeso, si salvano da soli.
+  - I tempi stanno nel PDF insieme agli altri dati e, se non ci sono altre modifiche in sospeso, si salvano da
+    soli (al massimo ogni 30 secondi durante la replica, e alla chiusura).
     **Spettacolo › Cancella i tempi registrati** li azzera.
 - **Spettacolo › Prova con un file audio** (F9, oppure trascina il file sulla finestra) fa ascoltare al
   programma la registrazione di una prova o di una replica, come se arrivasse dalla scheda: passa per guadagno,
@@ -192,7 +216,7 @@ Come per CueStage (dettagli in [GITHUB.md](GITHUB.md)):
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-./run.sh                       # oppure: ./run.sh copione.pdf  /  ./run.sh copione.sfollow
+./run.sh                       # oppure: ./run.sh copione.pdf  /  ./run.sh dati.scriptfollower.json
 python3 tests/test_smoke.py    # test di regressione (senza audio né modello)
 ```
 
@@ -262,7 +286,8 @@ macOS chiede il permesso per il microfono.
 | `languages.py`, `whisper_engine.py` | lingue del copione, modelli e download; Whisper con CTranslate2 |
 | `i18n/` | traduzioni dell'interfaccia (inglese, sloveno) |
 | `osc.py` + `osc_profiles/` | profili di destinazione, plugin, invio |
-| `project.py` | progetto `.sfollow` e regole dei pulsanti durante lo spettacolo |
+| `project.py` | dati dello show, JSON esportato, regole dei pulsanti durante lo spettacolo |
+| `pdf_store.py` | dati e immagini dentro il PDF, copia di riserva pulita, scrittura atomica |
 | `ui_*.py`, `main_window.py` | interfaccia |
 
 ## Licenze

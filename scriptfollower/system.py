@@ -16,7 +16,9 @@ def data_dir(*sub):
     Windows: %APPDATA%\\ScriptFollower
     macOS:   ~/Library/Application Support/ScriptFollower
     """
-    if IS_WIN:
+    if os.environ.get("SCRIPTFOLLOWER_DATA"):            # test e usi particolari: un'altra cartella
+        base = os.environ["SCRIPTFOLLOWER_DATA"]
+    elif IS_WIN:
         base = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~\\AppData\\Roaming"), "ScriptFollower")
     elif IS_MAC:
         base = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "ScriptFollower")

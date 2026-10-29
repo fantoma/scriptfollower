@@ -332,8 +332,7 @@ class PointDialog(QDialog):
         paths = [p for p in paths if p.lower().endswith(IMAGE_EXT)]
         if not paths:
             return
-        if self.project is None or not (self.project.pdf or self.project.path):
-            QMessageBox.warning(self, _('Immagini'), _('Apri prima un copione: le immagini vengono copiate accanto al PDF.'))
+        if self.project is None:
             return
         try:
             rels = import_images(self.project, paths)
