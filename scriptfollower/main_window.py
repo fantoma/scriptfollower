@@ -250,7 +250,8 @@ class MainWindow(QMainWindow):
             b.setMinimumWidth(120)
             b.setMaximumWidth(190)
             b.setFocusPolicy(Qt.NoFocus)
-            b.setToolTip(tip + ". " + _("Solo la vista si sposta: la posizione dello spettacolo non cambia."))
+            b.setProperty("tip", tip + ". " + _("Solo la vista si sposta: la posizione dello spettacolo non cambia."))
+            b.setToolTip(b.property("tip"))
             b.setStyleSheet("QPushButton{text-align:left;padding:0 8px;font-size:12px;}")
             b.clicked.connect(lambda _c=False, d=d: self.nav_command(d))
             sp = b.sizePolicy()
@@ -929,11 +930,14 @@ class MainWindow(QMainWindow):
             return
         for b, d, arrow in ((self.nav_prev_btn, -1, "▲ " + _("Prec.:")), (self.nav_next_btn, 1, "▼ " + _("Succ.:"))):
             t = self._nav_target(d) if self.doc is not None else None
-            b.setVisible(t is not None)
             if t is not None:
                 full = f"{arrow} {t.get('label') or _('Pulsante')}"
-                room = max(60, (b.width() if b.isVisible() else 190) - 18)
+                # larghezza vera solo se il tasto è già disposto; appena mostrato vale ancora quella di prima
+                laid = b.isVisible() and b.minimumWidth() <= b.width() <= b.maximumWidth()
+                room = (b.width() if laid else b.maximumWidth()) - 18
                 b.setText(b.fontMetrics().elidedText(full, Qt.ElideRight, room))
+                b.setToolTip(full if b.text() != full else b.property("tip") or "")
+            b.setVisible(t is not None)
 
     def nav_command(self, d):
         t = self._nav_target(d)

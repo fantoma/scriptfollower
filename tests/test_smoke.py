@@ -399,13 +399,17 @@ def navigazione_riattivazione_zone():
         w.project.add_point(p)
     w.refresh_points()
     A, B, C = w.project.sorted_points()
-    # comando precedente / successivo: si vedono solo se c'è dove andare
+    # comando precedente / successivo: si vedono solo se c'è dove andare (testo intero nel tooltip se accorciato)
+
+    def full(b):
+        return b.toolTip() if "…" in b.text() else b.text()
     w._update_nav()
-    assert not w.nav_prev_btn.isVisibleTo(w) and w.nav_next_btn.isVisibleTo(w) and "A" in w.nav_next_btn.text()
+    assert not w.nav_prev_btn.isVisibleTo(w) and w.nav_next_btn.isVisibleTo(w) and "A" in full(w.nav_next_btn), \
+        (w.nav_prev_btn.isVisibleTo(w), w.nav_next_btn.isVisibleTo(w), w.nav_next_btn.text(), w.nav_next_btn.width())
     w.nav_command(1)
-    assert w.nav_word == A["word"] and "B" in w.nav_next_btn.text()
+    assert w.nav_word == A["word"] and "B" in full(w.nav_next_btn)
     w.nav_command(1)
-    assert w.nav_word == B["word"] and "A" in w.nav_prev_btn.text()
+    assert w.nav_word == B["word"] and "A" in full(w.nav_prev_btn)
     w.nav_command(-1)
     assert w.nav_word == A["word"] and w.cueing.pos == -1          # la posizione non cambia
     w.go_current()
