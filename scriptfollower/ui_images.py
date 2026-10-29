@@ -11,6 +11,7 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QImageReader, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 from .i18n import _
+from .ui_util import fit_to_screen
 
 IMAGE_FILTER = "Immagini (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tif *.tiff);;Tutti i file (*)"
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff")
@@ -172,7 +173,7 @@ class ImageViewer(QDialog):
         for key, fn in (("Left", lambda: self.step(-1)), ("Right", lambda: self.step(1)), ("F", self.toggle_full)):
             QShortcut(QKeySequence(key), self, activated=fn)
         self._pm = QPixmap()
-        self.resize(900, 650)
+        fit_to_screen(self, 900, 650)
         self._load()
 
     def _load(self):

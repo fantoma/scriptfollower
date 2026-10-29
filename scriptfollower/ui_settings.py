@@ -12,6 +12,7 @@ from .languages import LANGS, download_dir, find_model
 from .recognizer import is_model, list_models, model_dirs
 from .ui_meter import GateMeter
 from .i18n import _
+from .ui_util import fit_to_screen
 
 REC_DEFAULTS = {"model": "", "grammar": True, "ahead": 260, "min_score": 5.0, "anchor": 35}
 
@@ -68,7 +69,7 @@ class SettingsDialog(QDialog):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(40)
-        self.resize(740, 760)
+        fit_to_screen(self, 740, 760)
 
     # ------------------------------------------------------------ audio
     def _build_audio(self):

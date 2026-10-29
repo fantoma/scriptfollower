@@ -13,7 +13,8 @@ from .i18n import _
 
 MARGIN = 18          # bordo intorno alle pagine
 GAP = 18             # spazio tra le pagine
-GUTTER = 250         # colonna dei punti a destra della pagina
+GUTTER = 250         # colonna dei punti a destra della pagina (più stretta se la vista è stretta)
+MIN_GUTTER = 150
 PAGE_BG = QColor(255, 255, 255)
 CANVAS_BG = QColor(28, 29, 34)
 
@@ -44,7 +45,7 @@ class PointWidget(QFrame):
         super().__init__(parent)
         self.pid = point["id"]
         self.kind = point["kind"]
-        self.setFixedWidth(GUTTER - 22)
+        self.setFixedWidth(GUTTER - 22)          # poi place_points la adatta alla colonna
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
@@ -83,10 +84,24 @@ class PointWidget(QFrame):
         p = self.point
         n = len(p.get("commands") or [])
         ni = len(p.get("images") or [])
-        self.btn.setText(("✔ " if sent else "▶ ") + (p.get("label") or _("Pulsante")) + ("" if n == 1 else f"  ×{n}")
-                         + ("  🖼" if ni else ""))
-        self.btn.setToolTip("\n".join(filter(None, [p.get("text"), _("{0} comandi OSC").format(n) if n != 1 else "",
+        self._full = (("✔ " if sent else "▶ ") + (p.get("label") or _("Pulsante")) + ("" if n == 1 else f"  ×{n}")
+                      + ("  🖼" if ni else ""))
+        self._elide_btn()
+        self.btn.setToolTip("\n".join(filter(None, [p.get("label") if self.btn.text() != self._full else "",
+                                                     p.get("text"), _("{0} comandi OSC").format(n) if n != 1 else "",
                                                      _("{0} immagini").format(ni) if ni else ""])))
+
+    def _elide_btn(self):
+        """Colonna stretta: il nome del pulsante si accorcia con «…» (intero nel tooltip)."""
+        if self.btn is None or not getattr(self, "_full", ""):
+            return
+        self.btn.ensurePolished()
+        room = max(30, self.width() - 22)
+        self.btn.setText(self.btn.fontMetrics().elidedText(self._full, Qt.ElideRight, room))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._elide_btn()
 
     def apply(self, state, enabled, blink_on, prep):
         key = (state, enabled, blink_on, prep)
@@ -151,6 +166,7 @@ class Canvas(QWidget):
         self.zoom = 1.0
         self.page_y = []
         self.page_w = 0
+        self.gutter = GUTTER
         self._cache = {}
         self._sel = None                    # (prima, ultima) parole selezionate col trascinamento
         self._press_word = None
@@ -176,8 +192,9 @@ class Canvas(QWidget):
             self.setFixedSize(max(200, view_w), 200)
             return
         maxw = max(w for w, _h in self.doc.page_sizes)
-        avail = max(300, view_w - GUTTER - 2 * MARGIN)
-        scale = max(0.5, min(3.0, avail / maxw)) * self.zoom
+        self.gutter = int(min(GUTTER, max(MIN_GUTTER, view_w * 0.3)))
+        avail = max(160, view_w - self.gutter - 2 * MARGIN)
+        scale = max(0.25, min(3.0, avail / maxw)) * self.zoom
         if abs(scale - self.scale) > 1e-4:
             self.scale = scale
             self._cache.clear()
@@ -187,7 +204,7 @@ class Canvas(QWidget):
             self.page_y.append(y)
             y += h * self.scale + GAP
         self.page_w = maxw * self.scale
-        self.setFixedSize(int(max(view_w, MARGIN * 2 + self.page_w + GUTTER)), int(y + MARGIN))
+        self.setFixedSize(int(max(view_w, MARGIN * 2 + self.page_w + self.gutter)), int(y + MARGIN))
         self.place_points()
         self.update()
 
@@ -256,10 +273,14 @@ class Canvas(QWidget):
             w = self.widgets.get(p["id"])
             if w is None:
                 continue
+            if w.width() != self.gutter - 22:
+                w.setFixedWidth(self.gutter - 22)
             w.adjustSize()
             h = max(w.sizeHint().height(), 30)
+            if w.hasHeightForWidth():                       # annotazioni lunghe: altezza alla larghezza vera
+                h = max(h, w.heightForWidth(self.gutter - 22))
             y = max(cy - h / 2, bottom + 4)
-            w.setGeometry(x, int(y), GUTTER - 22, int(h))
+            w.setGeometry(x, int(y), self.gutter - 22, int(h))
             bottom = y + h
         self.update()
 

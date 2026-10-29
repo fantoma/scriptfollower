@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QHeaderVi
 
 from . import languages as L
 from .i18n import _
+from .ui_util import fit_to_screen
 from .system import bundle_dir
 
 
@@ -66,7 +67,7 @@ class LanguagesDialog(QDialog):
         self.refresh()
         if highlight in L.LANGS:
             self.table.selectRow(L.ORDER.index(highlight))
-        self.resize(720, 360)
+        fit_to_screen(self, 720, 360)
 
     def refresh(self):
         b = bundle_dir()

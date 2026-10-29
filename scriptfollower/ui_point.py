@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpin
 from .osc import CUSTOM, clean_targets, describe, find_command, find_target, plugins, render, send_commands
 from .project import NOTE_COLORS
 from .i18n import _
+from .ui_util import fit_to_screen, scroll_wrap
 
 
 def _rows_height(w, rows, row=None):
@@ -203,7 +204,11 @@ class PointDialog(QDialog):
         self.targets = clean_targets(targets)
         is_btn = self.p["kind"] == "button"
         self.setWindowTitle(_("Pulsante OSC") if is_btn else _("Annotazione"))
-        v = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 8)
+        body = QWidget()
+        v = QVBoxLayout(body)                    # contenuto scorrevole: la finestra sta anche su schermi bassi
+        outer.addWidget(scroll_wrap(body), 1)
         if context_text:
             ctx = QLabel(_('Al punto: «… {0}»').format(context_text))
             ctx.setWordWrap(True)
@@ -270,8 +275,9 @@ class PointDialog(QDialog):
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
-        v.addWidget(bb)
-        self.resize(660, 880 if is_btn else 470)
+        bb.setContentsMargins(9, 0, 9, 0)
+        outer.addWidget(bb)
+        fit_to_screen(self, 660, 880 if is_btn else 470)
 
     # ------------------------------------------------------------ immagini e foto
     def _build_images(self, v):

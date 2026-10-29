@@ -4,10 +4,10 @@ import os
 import random
 import time
 
-from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QFont, QFontDatabase, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
-                               QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout,
+                               QHBoxLayout, QLabel, QLayout, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
                                QSpinBox, QSplitter, QTextBrowser, QVBoxLayout, QWidget)
 
 from . import __version__
@@ -27,6 +27,7 @@ from .ui_panel import NextPanel
 from .ui_point import PointDialog
 from .ui_settings import SettingsDialog, panel_settings, rec_settings
 from .i18n import _
+from .ui_util import ElidedLabel, clamp_to_screen, fit_to_screen
 
 PDF_FILTER = "Copione PDF (*.pdf);;Tutti i file (*)"
 CHECK_STYLE = ("QPushButton{padding:0 12px;font-weight:bold;font-size:13px;border-radius:6px;}"
@@ -82,8 +83,9 @@ class MainWindow(QMainWindow):
         g = self.qs.value("geometry")
         if g is not None:
             self.restoreGeometry(g)
+            clamp_to_screen(self)
         else:
-            self.resize(1400, 900)
+            fit_to_screen(self, 1400, 900)
         QTimer.singleShot(0, lambda: self._startup_open(path))
 
     def _qs_json(self, key):
@@ -92,6 +94,54 @@ class MainWindow(QMainWindow):
             return json.loads(v) if v else None
         except (TypeError, ValueError):
             return None
+
+    # =========================================================== finestra ridimensionabile
+    def _relayout_bar(self):
+        """Barra in alto: una riga se ci sta, altrimenti due; l'orologio sparisce per ultimo."""
+        if not hasattr(self, "top_w"):
+            return
+        width = self.top_w.width()
+        clock_w = self.clock.sizeHint().width() + self.bar_b.layout().spacing()
+        b_min = self.bar_b.minimumSizeHint().width() - (clock_w if not self.clock.isHidden() else 0)
+        a_min = self.bar_a.minimumSizeHint().width()
+        a_min += 170                         # perché si legga la posizione (pagina e parole)
+        gap = self.top.horizontalSpacing()
+        if width >= a_min + b_min + clock_w + gap:
+            wrap, clock = False, True
+        elif width >= a_min + b_min + gap:
+            wrap, clock = False, False       # prima si toglie l'orologio, poi si va su due righe
+        else:
+            wrap, clock = True, width >= b_min + clock_w
+        if self.clock.isHidden() == clock:
+            self.clock.setVisible(clock)
+        if wrap != self.bar_wrapped:
+            self.bar_wrapped = wrap
+            self.top.removeWidget(self.bar_b)
+            if wrap:
+                self.top.addWidget(self.bar_b, 1, 0, Qt.AlignRight)
+            else:
+                self.top.addWidget(self.bar_b, 0, 1)
+            self.top_w.updateGeometry()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._relayout_bar()
+        QTimer.singleShot(0, self._update_nav)       # testi dei tasti comando alla nuova larghezza
+        # finestra stretta: il riquadro di destra non si prende più del 45% (il copione resta leggibile)
+        sw, pw = self.split.width(), self.panel.width()
+        if sw > 0 and pw > max(self.panel.minimumWidth(), int(sw * 0.45)):
+            keep = max(self.panel.minimumWidth(), int(sw * 0.45))
+            self.split.setSizes([sw - keep - self.split.handleWidth(), keep])
+
+    def top_min_width(self):
+        """Larghezza minima della barra in alto: quella su due righe, senza orologio."""
+        clock_w = self.clock.sizeHint().width() + self.bar_b.layout().spacing()
+        b_min = self.bar_b.minimumSizeHint().width() - (clock_w if not self.clock.isHidden() else 0)
+        return max(self.bar_a.minimumSizeHint().width(), b_min)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._relayout_bar()
 
     def _qs_save(self, key, value):
         self.qs.setValue(key, json.dumps(value, ensure_ascii=False))
@@ -102,7 +152,10 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(6, 6, 6, 6)
 
-        bar = QHBoxLayout()
+        # barra in alto in due gruppi: affiancati se c'è spazio, uno sotto l'altro se la finestra è stretta
+        self.bar_a, self.bar_b = QWidget(), QWidget()
+        bar = QHBoxLayout(self.bar_a)
+        bar.setContentsMargins(0, 0, 0, 0)
         self.listen_btn = QPushButton(_('ASCOLTA'))
         self.listen_btn.setFixedSize(150, 70)
         self.listen_btn.setFocusPolicy(Qt.NoFocus)
@@ -135,16 +188,18 @@ class MainWindow(QMainWindow):
         bar.addSpacing(6)
         sb = QVBoxLayout()
         sb.addWidget(QLabel(_('Posizione:')))
-        self.pos_label = QLabel("—")
+        self.pos_label = ElidedLabel("—", min_width=90)
         f = QFont()
         f.setPointSize(16)
         f.setBold(True)
         self.pos_label.setFont(f)
         sb.addWidget(self.pos_label)
-        self.pos_notes = QLabel("")
+        self.pos_notes = ElidedLabel("", min_width=90)
         self.pos_notes.setStyleSheet("color:#aaa;")
         sb.addWidget(self.pos_notes)
         bar.addLayout(sb, 1)
+        bar = QHBoxLayout(self.bar_b)
+        bar.setContentsMargins(0, 0, 0, 0)
         nav = QVBoxLayout()
         nav.setSpacing(4)
         r1 = QHBoxLayout()
@@ -192,7 +247,8 @@ class MainWindow(QMainWindow):
         for b, d, tip in ((self.nav_prev_btn, -1, _("Mostra il comando precedente nel copione (Alt+↑)")),
                           (self.nav_next_btn, 1, _("Mostra il comando successivo nel copione (Alt+↓)"))):
             b.setFixedHeight(32)
-            b.setFixedWidth(190)
+            b.setMinimumWidth(120)
+            b.setMaximumWidth(190)
             b.setFocusPolicy(Qt.NoFocus)
             b.setToolTip(tip + ". " + _("Solo la vista si sposta: la posizione dello spettacolo non cambia."))
             b.setStyleSheet("QPushButton{text-align:left;padding:0 8px;font-size:12px;}")
@@ -236,7 +292,16 @@ class MainWindow(QMainWindow):
         cf.setPointSize(18)
         self.clock.setFont(cf)
         bar.addWidget(self.clock)
-        root.addLayout(bar)
+        self.top_w = _TopBar(self)
+        self.top = QGridLayout(self.top_w)
+        self.top.setSizeConstraint(QLayout.SetNoConstraint)   # può stringersi: poi la barra va su due righe
+        self.top.setContentsMargins(0, 0, 0, 0)
+        self.top.setHorizontalSpacing(6)
+        self.top.setVerticalSpacing(4)
+        self.top.addWidget(self.bar_a, 0, 0)
+        self.top.addWidget(self.bar_b, 0, 1)
+        self.bar_wrapped = False
+        root.addWidget(self.top_w)
 
         self.split = QSplitter(Qt.Horizontal)
         self.view = DocView()
@@ -866,8 +931,9 @@ class MainWindow(QMainWindow):
             t = self._nav_target(d) if self.doc is not None else None
             b.setVisible(t is not None)
             if t is not None:
-                label = t.get("label") or "Pulsante"
-                b.setText(f"{arrow} {label[:20] + '…' if len(label) > 21 else label}")
+                full = f"{arrow} {t.get('label') or _('Pulsante')}"
+                room = max(60, (b.width() if b.isVisible() else 190) - 18)
+                b.setText(b.fontMetrics().elidedText(full, Qt.ElideRight, room))
 
     def nav_command(self, d):
         t = self._nav_target(d)
@@ -1347,11 +1413,33 @@ class MainWindow(QMainWindow):
         bb = QDialogButtonBox(QDialogButtonBox.Close)
         bb.rejected.connect(d.reject)
         v.addWidget(bb)
-        d.resize(680, 560)
+        fit_to_screen(d, 680, 560)
         d.exec()
 
     def about(self):
         QMessageBox.about(self, APP_NAME, _('<b>{0}</b> {1}<br>Segue il parlato e fa scorrere il copione, con pulsanti OSC per CueStage, QLab, SCS, ChamSys e altri.<br><br>Riconoscimento vocale offline: Vosk (Apache 2.0), Whisper/CTranslate2 (MIT). PDF: PyMuPDF (AGPL). Audio: libsndfile (LGPL).<br>Licenza GPL v3.').format(APP_NAME, __version__))
+
+
+class _TopBar(QWidget):
+    """Contenitore della barra in alto: dichiara come minimo la larghezza su due righe, così la finestra si può
+    stringere; quando il contenitore cambia larghezza la barra si ridispone."""
+
+    def __init__(self, mw):
+        super().__init__()
+        self.mw = mw
+
+    def minimumSizeHint(self):
+        lay = self.layout()
+        h = lay.minimumSize().height() if lay is not None else 0
+        return QSize(self.mw.top_min_width(), h)
+
+    def sizeHint(self):
+        s = super().sizeHint()
+        return QSize(max(s.width(), self.mw.top_min_width()), s.height())
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.mw._relayout_bar()
 
 
 class SimulateDialog(QDialog):
@@ -1390,7 +1478,7 @@ class SimulateDialog(QDialog):
         self.timer.timeout.connect(self._step)
         self.rnd = random.Random(1)
         self.t = 0
-        self.resize(520, 200)
+        fit_to_screen(self, 520, 200)
 
     def _send(self, text):
         self.words.extend(normalize(text))

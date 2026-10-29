@@ -10,6 +10,7 @@ from .align import normalize
 from .languages import LANGS, find_model
 from .vocab import default_alias, suggest
 from .i18n import _
+from .ui_util import fit_to_screen
 
 C_WORD, C_COUNT, C_SAY, C_STATE = range(4)
 
@@ -75,7 +76,7 @@ class VocabDialog(QDialog):
         else:
             self.msg.setText(_('Premi «Controlla le parole con il modello» per sapere quali parole non conosce (serve qualche secondo per caricare il modello).'))
             self.msg.setStyleSheet("color:#999;")
-        self.resize(760, 620)
+        fit_to_screen(self, 760, 620)
 
     # ------------------------------------------------------------ tabella
     def _fill(self, aliases, unknown=()):

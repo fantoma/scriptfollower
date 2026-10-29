@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
 from .netscan import scan
 from .osc import plugins
 from .i18n import _
+from .ui_util import fit_to_screen
 
 C_SURE, C_NAME, C_ADDR, C_PLUGIN, C_HOW = range(5)
 
@@ -83,7 +84,7 @@ class NetScanDialog(QDialog):
         self._fill_dest()
         self._sel()
         self.auto_btn.setEnabled(False)
-        self.resize(820, 520)
+        fit_to_screen(self, 820, 520)
 
     # ------------------------------------------------------------ ricerca
     def start(self):

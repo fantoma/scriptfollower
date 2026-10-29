@@ -1018,5 +1018,40 @@ def finestra_prova_file_audio():
     w.close()
 
 
+@test
+def finestra_ridimensionabile():
+    """La finestra si stringe fino a ~650 px: la barra va su due righe, poi sparisce l'orologio."""
+    from scriptfollower.main_window import MainWindow
+    from scriptfollower.ui_point import PointDialog
+    w = MainWindow()
+    w.open_pdf(PDF)
+    w.show()
+    run(0.2)
+    assert w.minimumSizeHint().width() <= 700, w.minimumSizeHint()
+    w.resize(1600, 900)
+    run(0.2)
+    assert not w.bar_wrapped and w.clock.isVisible()
+    w.resize(900, 700)
+    run(0.2)
+    assert w.bar_wrapped
+    w.resize(660, 650)
+    run(0.2)
+    assert w.bar_wrapped and not w.clock.isVisible()
+    assert w.bar_b.geometry().right() <= w.top_w.width()
+    assert w.view.canvas.gutter < 250                  # colonna dei pulsanti più stretta
+    assert w.panel.width() <= int(w.split.width() * 0.45) + 2
+    w.resize(1600, 900)
+    run(0.2)
+    assert not w.bar_wrapped and w.clock.isVisible()
+    p = new_point(5, "button")
+    p["label"] = "Un nome di pulsante molto lungo che non ci sta"
+    p["commands"] = []
+    d = PointDialog(p, w.project.targets, "contesto", w, project=w.project)
+    assert d.minimumSizeHint().height() < 300          # contenuto scorrevole: sta anche su schermi bassi
+    d.reject()
+    w.project.dirty = False
+    w.close()
+
+
 print(f"\n{len(FAILED)} prove fallite" + (f": {', '.join(FAILED)}" if FAILED else ""))
 sys.exit(len(FAILED))

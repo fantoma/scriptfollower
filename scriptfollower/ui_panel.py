@@ -9,6 +9,7 @@ from .timing import fmt
 from .ui_images import ImageViewer, ThumbStrip
 from .ui_document import STYLE_BTN
 from .i18n import _
+from .ui_util import ElidedLabel
 
 
 def _big(style, size):
@@ -20,12 +21,12 @@ class NextPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumWidth(320)
+        self.setMinimumWidth(250)
         self.setMaximumWidth(460)
         v = QVBoxLayout(self)
         v.setContentsMargins(8, 4, 4, 4)
         v.setSpacing(6)
-        title = QLabel(_('Prossimo evento:'))
+        title = ElidedLabel(_('Prossimo evento:'), min_width=110)
         f = QFont(self.font())
         f.setPointSize(15)
         f.setBold(True)

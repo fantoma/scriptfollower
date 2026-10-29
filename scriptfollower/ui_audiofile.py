@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QAbstractSlider, QCheckBox, QComboBox, QDialog, Q
 
 from .audio_file import AUDIO_FILTER, SPEEDS, FilePlayer, fmt_time
 from .i18n import _
+from .ui_util import fit_to_screen
 
 RECENT_KEY = "test_audio_files"              # QSettings: {pdf: file audio} per riproporre l'ultimo
 
@@ -97,7 +98,7 @@ class AudioFileDialog(QDialog):
         hint.setStyleSheet("color:#888; font-size:11px;")
         v.addWidget(hint)
         self._enable(False)
-        self.resize(560, 330)
+        fit_to_screen(self, 560, 330)
 
     # ------------------------------------------------------------ file
     def _recent(self):
