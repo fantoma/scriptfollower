@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox, QFileD
 
 from . import __version__
 from .align import Aligner, normalize
+from .audio_file import is_audio
 from .audio_input import AudioInput, audio_settings
 from .osc import clean_targets, describe, migrate_commands, send_commands
 from .project import EXT, FILE_FILTER, Cueing, Project, new_point
@@ -35,6 +36,7 @@ CHECK_STYLE = ("QPushButton{padding:0 12px;font-weight:bold;font-size:13px;borde
 class MainWindow(QMainWindow):
     def __init__(self, path=None):
         super().__init__()
+        self.setAcceptDrops(True)
         self.qs = QSettings("ScriptFollower", "ScriptFollower")
         self.audio_cfg = audio_settings(self._qs_json("audio"))
         self.rec_cfg = rec_settings(self._qs_json("recognition"))
@@ -57,6 +59,8 @@ class MainWindow(QMainWindow):
         self.rec.unknown.connect(self._model_unknown)
         self.unknown_words = set()           # parole del copione che il modello non conosce
         self.sim = None
+        self.audiotest = None                  # finestra «Prova con un file audio»
+        self.test_speed = 1.0
         self._blink = True
 
         self._build_ui()
@@ -209,7 +213,7 @@ class MainWindow(QMainWindow):
         mvb = QVBoxLayout()
         mvb.addStretch(1)
         mh = QHBoxLayout()
-        ml = QLabel(_('Ingresso · gate'))
+        ml = self.meter_label = QLabel(_('Ingresso · gate'))
         ml.setStyleSheet("font-weight:bold;")
         mh.addWidget(ml)
         mh.addStretch(1)
@@ -300,6 +304,7 @@ class MainWindow(QMainWindow):
         add(m, _('Vai alla posizione corrente'), self.go_current, "Ctrl+L")
         m.addSeparator()
         add(m, _('Simula il parlato…'), self.simulate_dialog, "F4")
+        add(m, _('Prova con un file audio…'), self.audio_test_dialog, "F9")
         m.addSeparator()
         add(m, _('Ingrandisci'), lambda: self.view.set_zoom(self.view.canvas.zoom * 1.1), "Ctrl++")
         add(m, _('Riduci'), lambda: self.view.set_zoom(self.view.canvas.zoom / 1.1), "Ctrl+-")
@@ -397,6 +402,11 @@ class MainWindow(QMainWindow):
 
     def _ui_tick(self):
         self.meter.update()
+        lab = _("File audio · gate") if self.audio.file_mode else _('Ingresso · gate')
+        if self.meter_label.text() != lab:
+            self.meter_label.setText(lab)
+            self.meter_label.setStyleSheet("font-weight:bold;" + ("color:#e0b040;" if self.audio.file_mode else ""))
+            self.meter_label.setToolTip(self.audio.name if self.audio.file_mode else "")
         self.clock.setText(time.strftime("%H:%M:%S"))
 
     def _blink_tick(self):
@@ -415,7 +425,9 @@ class MainWindow(QMainWindow):
             self.open_project(last)
 
     def open_any(self, path):
-        if path.lower().endswith(EXT):
+        if is_audio(path):
+            self.audio_test_dialog(path)
+        elif path.lower().endswith(EXT):
             self.open_project(path)
         else:
             self.open_pdf(path)
@@ -513,6 +525,7 @@ class MainWindow(QMainWindow):
         self.cueing = Cueing(p)
         rec_on = self.timing.recording
         self.timing = Timing(p)
+        self.timing.set_speed(self.test_speed)
         self.timing.recording = rec_on
         self._rebuild_aligner()
         self.view.canvas.set_doc(doc)
@@ -557,6 +570,8 @@ class MainWindow(QMainWindow):
             return
         self.qs.setValue("geometry", self.saveGeometry())
         self.stop_listen()
+        if self.audiotest is not None:
+            self.audiotest.close()
         self.audio.close()
         if self.sim is not None:
             self.sim.close()
@@ -1281,6 +1296,46 @@ class MainWindow(QMainWindow):
         self.sim.show()
         self.sim.raise_()
 
+    # =========================================================== prova con un file audio
+    def audio_test_dialog(self, path=None):
+        if self.doc is None:
+            self.status(_('Apri prima un copione'))
+            return
+        if self.audiotest is None:
+            from .ui_audiofile import AudioFileDialog
+            self.audiotest = AudioFileDialog(self)
+            self.audiotest.finished.connect(self._audio_test_closed)
+            path = path or self.audiotest.suggested()
+        if path:
+            self.audiotest.load(path)
+        self.audiotest.show()
+        self.audiotest.raise_()
+
+    def _audio_test_closed(self, _r=0):
+        d, self.audiotest = self.audiotest, None
+        if d is not None:
+            d.deleteLater()
+
+    def set_test_speed(self, s):
+        self.test_speed = float(s)
+        self.timing.set_speed(self.test_speed)
+
+    # ------------------------------------------------------------ trascinamento di file sulla finestra
+    def dragEnterEvent(self, e):
+        urls = e.mimeData().urls() if e.mimeData().hasUrls() else []
+        if urls and urls[0].isLocalFile():
+            p = urls[0].toLocalFile().lower()
+            if p.endswith((".pdf", EXT)) or is_audio(p):
+                e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        p = e.mimeData().urls()[0].toLocalFile()
+        if is_audio(p):
+            self.audio_test_dialog(p)
+        elif self._confirm_discard():
+            self.open_any(p)
+        e.acceptProposedAction()
+
     # =========================================================== aiuto
     def help_dialog(self):
         d = QDialog(self)
@@ -1296,7 +1351,7 @@ class MainWindow(QMainWindow):
         d.exec()
 
     def about(self):
-        QMessageBox.about(self, APP_NAME, _('<b>{0}</b> {1}<br>Segue il parlato e fa scorrere il copione, con pulsanti OSC per CueStage, QLab, SCS, ChamSys e altri.<br><br>Riconoscimento vocale offline: Vosk (Apache 2.0). PDF: PyMuPDF (AGPL).<br>Licenza GPL v3.').format(APP_NAME, __version__))
+        QMessageBox.about(self, APP_NAME, _('<b>{0}</b> {1}<br>Segue il parlato e fa scorrere il copione, con pulsanti OSC per CueStage, QLab, SCS, ChamSys e altri.<br><br>Riconoscimento vocale offline: Vosk (Apache 2.0), Whisper/CTranslate2 (MIT). PDF: PyMuPDF (AGPL). Audio: libsndfile (LGPL).<br>Licenza GPL v3.').format(APP_NAME, __version__))
 
 
 class SimulateDialog(QDialog):
@@ -1411,7 +1466,10 @@ soglia. Meglio una mandata del mixer con le sole voci, senza musica né effetti.
 <h3>Lingue</h3>
 <p><b>Lingua › Lingua del copione</b>: italiano (incluso), inglese, sloveno; i modelli si scaricano da
 <b>Lingua › Lingue del riconoscimento</b>. <b>Lingua › Lingua dell'interfaccia</b>: italiano, English, slovenščina.</p>
-<h3>Senza microfono</h3>
-<p><b>Spettacolo › Simula il parlato</b> (F4): scrivi frasi o lascia leggere il copione con errori casuali.</p>
+<h3>Senza attori</h3>
+<p><b>Spettacolo › Prova con un file audio</b> (F9, o trascina il file sulla finestra): la registrazione di una
+prova o di una replica (WAV, FLAC, MP3, OGG; con ffmpeg anche M4A e video) passa per gate e riconoscitore come se
+arrivasse dalla scheda, anche accelerata fino a 3×. <b>Spettacolo › Simula il parlato</b> (F4): scrivi frasi o
+lascia leggere il copione con errori casuali.</p>
 """
 

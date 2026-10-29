@@ -101,6 +101,25 @@ def self_test(report=None):
         return f"CTranslate2 {ctranslate2.__version__}, tokenizers {tokenizers.__version__}"
     step("Whisper (sloveno)", whisper)
 
+    def audiofile():
+        import tempfile
+        import numpy as np
+        import soundfile as sf
+        from scriptfollower.audio_file import AudioFile
+        d = tempfile.mkdtemp(prefix="sf-selftest-")
+        out = []
+        for ext in ("wav", "flac", "mp3"):
+            p = os.path.join(d, "prova." + ext)
+            sf.write(p, (0.3 * np.sin(np.arange(16000) / 5)).astype(np.float32), 16000)
+            f = AudioFile(p)
+            n = len(f.read(8000))
+            f.close()
+            if n != 8000:
+                raise RuntimeError(f"{ext}: {n} campioni")
+            out.append(ext)
+        return f"libsndfile {sf.__libsndfile_version__}: " + ", ".join(out)
+    step("file audio", audiofile)
+
     def languages():
         from scriptfollower.i18n import set_language, _
         for code in ("en", "sl"):

@@ -42,6 +42,10 @@ binaries += [b for b in collect_dynamic_libs("vosk") if b[0] not in {x[0] for x 
 binaries += collect_dynamic_libs("ctranslate2")
 datas += collect_data_files("ctranslate2")
 
+# ---- soundfile: libsndfile sta in «_soundfile_data» (Windows e macOS) o «soundfile.libs» (Linux)
+binaries += collect_dynamic_libs("soundfile") + collect_dynamic_libs("_soundfile_data")
+datas += collect_data_files("_soundfile_data")
+
 # ---- modello vocale incluso (facoltativo)
 model = os.environ.get("SCRIPTFOLLOWER_MODEL_DIR")
 if model and os.path.isdir(model):
@@ -50,7 +54,7 @@ if model and os.path.isdir(model):
         if os.path.isfile(path):
             datas.append((path, os.path.join("models", name, os.path.dirname(os.path.relpath(path, model)))))
 
-hidden = set(collect_submodules("scriptfollower")) | set(collect_submodules("pymupdf")) | {"vosk", "_cffi_backend", "ctranslate2", "tokenizers"}
+hidden = set(collect_submodules("scriptfollower")) | set(collect_submodules("pymupdf")) | {"vosk", "_cffi_backend", "ctranslate2", "tokenizers", "soundfile", "_soundfile_data"}
 
 a = Analysis(
     [os.path.join(SPECPATH, "launch.py")],

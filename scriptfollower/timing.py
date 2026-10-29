@@ -54,11 +54,24 @@ def clean_timing(d):
 class Timing:
     def __init__(self, project, clock=time.monotonic):
         self.project = project
-        self.clock = clock
+        self._real = clock
+        self.speed = 1.0               # prova con un file audio accelerato: il tempo «dello spettacolo» corre di più
+        self._r0 = self._v0 = 0.0
         self.recording = False
         self.reached = set()           # punti già raggiunti in questa replica
         self.chain = None              # (id dell'ultimo evento, istante) oppure None dopo un salto
         self.run_started = False
+
+    def clock(self):
+        """Tempo dello spettacolo: quello reale, moltiplicato per la velocità della prova con un file."""
+        if self.speed == 1.0 and not self._r0:
+            return self._real()
+        return self._v0 + (self._real() - self._r0) * self.speed
+
+    def set_speed(self, speed):
+        v = self.clock()
+        self._r0, self._v0 = self._real(), v
+        self.speed = float(speed) or 1.0
 
     @property
     def data(self):

@@ -295,17 +295,62 @@ class AudioInput:
         self._g = 0.0                    # apertura del gate (rampa tra un blocco e l'altro)
         self.lock = threading.Lock()
         self.monitor = Monitor()
+        # prova con un file audio (audio_file.FilePlayer): la scheda resta chiusa e i blocchi arrivano da lì
+        self.file_mode = False
+        self.file_listen = False         # far sentire il file sull'uscita del preascolto
+        self.file_speed = 1.0
 
     @property
     def listening(self):
-        return self.stream is not None
+        return self.stream is not None or self.file_mode
 
     def configure(self, cfg):
         new = audio_settings(cfg)
         old, self.cfg = self.cfg, new
+        if self.file_mode:
+            self._monitor_file()
+            return
         if self.stream is None or (new["device"], new["channel"]) != (old["device"], old["channel"]):
             self.open()
         self.monitor.configure(new, self.sr if self.stream is not None else 0)
+
+    # ------------------------------------------------------------ file audio al posto della scheda
+    def use_file(self, sr, name):
+        """Da qui in poi l'audio arriva da un file (FilePlayer) alla frequenza sr."""
+        self.close()
+        self.error = ""
+        self.file_mode = True
+        self.name = name
+        self.n_ch = 1
+        self.sr = int(sr)
+        self._rs = Resampler(self.sr)
+        self._monitor_file()
+
+    def leave_file(self):
+        """Fine della prova con il file: si torna alla scheda in ingresso."""
+        if not self.file_mode:
+            return
+        self.file_mode = False
+        self.file_listen = False
+        self.file_speed = 1.0
+        self.close()
+        self.open()
+        self.monitor.configure(self.cfg, self.sr if self.stream is not None else 0)
+
+    def set_file_listen(self, on):
+        self.file_listen = bool(on)
+        self._monitor_file()
+
+    def set_file_speed(self, speed):
+        self.file_speed = float(speed)
+        self._monitor_file()
+
+    def _monitor_file(self):
+        if not self.file_mode:
+            return
+        cfg = dict(self.cfg)
+        cfg["mon_on"] = (cfg["mon_on"] or self.file_listen) and self.file_speed == 1.0   # accelerato non si sente
+        self.monitor.configure(cfg, self.sr)
 
     def open(self):
         self.close()
@@ -361,7 +406,8 @@ class AudioInput:
                 s.close()
             except Exception:
                 pass
-        self.monitor.close()
+        if not self.file_mode:
+            self.monitor.close()
         self.meter = self.meter_post = 0.0
         self.gate = False
         self.hold_left = 0.0

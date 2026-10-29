@@ -898,5 +898,117 @@ def whisper_con_modello_minuscolo():
         rz.WHISPER_STEP = old
 
 
+@test
+def prova_con_file_audio():
+    """File audio al posto della scheda: lettura (libsndfile e ffmpeg), canali, salti, gate e invio a 16 kHz."""
+    import shutil
+    import subprocess
+    import soundfile as sf
+    from scriptfollower.audio_file import AudioFile, FilePlayer, fmt_time, is_audio
+    from scriptfollower.audio_input import AudioInput
+    sr = 44100
+    t = np.arange(int(sr * 2.0)) / sr
+    burst = (0.5 * np.sin(2 * np.pi * 440 * t) * ((t % 1.0) < 0.5)).astype(np.float32)   # 0,5 s sì, 0,5 s no
+    st = np.stack([burst, np.zeros_like(burst)], axis=1)                                     # voci sul canale 1
+    path = os.path.join(TMP, "prova.wav")
+    sf.write(path, st, sr)
+    assert is_audio(path) and is_audio("x.M4A") and not is_audio("x.pdf")
+    assert fmt_time(3725) == "1:02:05" and fmt_time(75) == "1:15"
+    f = AudioFile(path)
+    assert (f.sr, f.channels, f.backend) == (sr, 2, "libsndfile") and abs(f.duration - 2.0) < 1e-3
+    assert abs(float(np.abs(f.read(sr // 4)).max()) - 0.25) < 0.01          # mix: metà del canale 1
+    f.channel = 2
+    assert float(np.abs(f.read(1000)).max()) == 0.0
+    f.seek(1.5)
+    assert f.pos == int(1.5 * sr)
+    f.close()
+    # in AudioInput: gate, meter e riconoscitore a 16 kHz, 3× più veloce del tempo reale
+    a = AudioInput()
+    a.configure({"device": "", "gate_on": True, "threshold_db": -30, "hold_ms": 0})
+    got = []
+    a.consumer = got.append
+    pl = FilePlayer(a)
+    pl.load(path)
+    assert a.file_mode and a.listening and a.sr == sr
+    pl.set_channel(1)
+    pl.set_speed(3.0)
+    ends = []
+    pl.state.connect(ends.append)
+    t0 = time.monotonic()
+    pl.play()
+    while pl.playing and time.monotonic() - t0 < 5:
+        run(0.05)
+    run(0.1)
+    took = time.monotonic() - t0
+    assert ends[-1] == "end" and 0.4 < took < 1.6, (ends, took)
+    pcm = np.frombuffer(b"".join(got), np.int16)
+    assert abs(len(pcm) - 32000) < 400, len(pcm)
+    first, second = pcm[1000:7000], pcm[9000:15000]                       # suono, poi silenzio del gate
+    assert np.abs(first).max() > 10000 and np.abs(second).max() == 0
+    # salto e ripresa; il cambio di velocità vale per i tempi tra gli eventi
+    got.clear()
+    pl.seek(1.9)
+    pl.play()
+    run(0.4)
+    assert not pl.playing and 0 < len(b"".join(got)) // 2 < 2400
+    pl.unload()
+    a.leave_file()
+    assert not a.file_mode
+    from scriptfollower.timing import Timing
+    clk = [100.0]
+    tm = Timing(Project(), clock=lambda: clk[0])
+    assert tm.clock() == 100.0
+    tm.set_speed(2.0)
+    clk[0] += 10
+    assert tm.clock() == 120.0
+    # altri formati con ffmpeg (M4A/AAC), se c'è
+    if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+        m4a = os.path.join(TMP, "prova.m4a")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", path, "-c:a", "aac", m4a], check=True)
+        g = AudioFile(m4a)
+        assert g.backend == "ffmpeg" and g.channels == 2 and abs(g.duration - 2.0) < 0.1
+        g.seek(0.1)
+        x = g.read(4410)
+        assert len(x) == 4410 and np.abs(x).max() > 0.1
+        g.seek(0.75)                                                       # pausa del segnale
+        assert np.abs(g.read(2000)).max() < 0.05
+        g.close()
+    else:
+        print("    (ffmpeg non installato: salto la prova M4A)")
+    try:
+        AudioFile(os.path.join(TMP, "non-esiste.wav"))
+        raise AssertionError("file inesistente accettato")
+    except RuntimeError:
+        pass
+
+
+@test
+def finestra_prova_file_audio():
+    import soundfile as sf
+    from scriptfollower.main_window import MainWindow
+    path = os.path.join(TMP, "replica.flac")
+    sf.write(path, (0.3 * np.sin(np.arange(16000 * 3) / 8)).astype(np.float32), 16000)
+    w = MainWindow()
+    w.open_pdf(PDF)
+    w.audio_test_dialog(path)
+    d = w.audiotest
+    assert d is not None and d.player.file is not None and w.audio.file_mode
+    assert d.slider.maximum() == 30 and d.chan.count() == 1
+    d.auto.setChecked(False)                         # niente modello vocale nei test
+    d.speed.setCurrentIndex(3)
+    assert w.timing.speed == 3.0
+    d.play()
+    run(0.4)
+    assert d.slider.value() > 0
+    d.skip(10)
+    run(1.5)
+    assert not d.player.playing
+    d.close()
+    run(0.1)
+    assert w.audiotest is None and not w.audio.file_mode and w.timing.speed == 1.0
+    w.project.dirty = False
+    w.close()
+
+
 print(f"\n{len(FAILED)} prove fallite" + (f": {', '.join(FAILED)}" if FAILED else ""))
 sys.exit(len(FAILED))

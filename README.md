@@ -118,8 +118,22 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
     non le confonde.
   - I tempi stanno nel file `.sfollow` e, se non ci sono altre modifiche in sospeso, si salvano da soli.
     **Spettacolo › Cancella i tempi registrati** li azzera.
-- **Spettacolo › Simula il parlato** (F4) serve a provare senza microfono: scrivi le frasi, oppure lascia
-  leggere il copione con una percentuale di errori casuali.
+- **Spettacolo › Prova con un file audio** (F9, oppure trascina il file sulla finestra) fa ascoltare al
+  programma la registrazione di una prova o di una replica, come se arrivasse dalla scheda: passa per guadagno,
+  gate, meter e preascolto, e il copione la segue. Finché la finestra è aperta la scheda in ingresso non viene
+  ascoltata (sul meter compare «File audio · gate»).
+  - Formati: WAV, FLAC, MP3, OGG/Opus, AIFF (libsndfile, incluso); se sul computer c'è **ffmpeg**, anche M4A,
+    AAC e l'audio dei video (MP4, MOV, MKV…).
+  - Riproduci / pausa / ferma, ±10 s, barra di posizione; **canale del file** (mix, oppure il canale delle voci
+    di una registrazione multitraccia); **velocità** 1×, 1,5×, 2×, 3× per scorrere in fretta un copione lungo
+    (accelerato il file non si sente).
+  - «Fai sentire il file» lo manda sull'uscita del preascolto (o su quella predefinita del sistema).
+  - Spostandosi nel file il copione si riaggancia da solo dopo qualche parola; per partire subito dal punto
+    giusto, doppio clic sulla parola. Con «⏺ Tempi» acceso i tempi tra gli eventi si misurano nel tempo della
+    registrazione, anche accelerata; pause e salti non entrano nelle medie.
+  - Il programma ripropone l'ultimo file provato con lo stesso copione.
+- **Spettacolo › Simula il parlato** (F4) serve a provare senza microfono e senza registrazioni: scrivi le
+  frasi, oppure lascia leggere il copione con una percentuale di errori casuali.
 
 ## Impostazioni
 
@@ -243,6 +257,7 @@ macOS chiede il permesso per il microfono.
 | `script_doc.py` | lettura del PDF, parole con coordinate, parti dette ed escluse, frasi |
 | `align.py` | normalizzazione e allineamento del parlato al copione |
 | `audio_input.py` | ingresso audio, gate, meter, ricampionamento a 16 kHz |
+| `audio_file.py`, `ui_audiofile.py` | prova con un file audio al posto della scheda |
 | `recognizer.py` | riconoscimento in un thread (Vosk o Whisper) |
 | `languages.py`, `whisper_engine.py` | lingue del copione, modelli e download; Whisper con CTranslate2 |
 | `i18n/` | traduzioni dell'interfaccia (inglese, sloveno) |
@@ -253,4 +268,4 @@ macOS chiede il permesso per il microfono.
 ## Licenze
 
 GPL v3 (come CueStage). PyMuPDF è AGPL v3, compatibile con un progetto GPL v3 open source. Vosk e i suoi
-modelli sono Apache 2.0. CTranslate2, tokenizers e i modelli Whisper sono MIT.
+modelli sono Apache 2.0. CTranslate2, tokenizers e i modelli Whisper sono MIT; libsndfile (in soundfile) è LGPL.
