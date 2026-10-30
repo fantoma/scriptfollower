@@ -19,6 +19,24 @@ def _rows_height(w, rows, row=None):
     return int((row or fm.lineSpacing()) * rows + 2 * w.frameWidth() + 12)
 
 
+def remembered_command():
+    """Profilo e comando dell'ultimo comando OSC confermato (per i pulsanti nuovi)."""
+    import json
+    from PySide6.QtCore import QSettings
+    try:
+        d = json.loads(QSettings("ScriptFollower", "ScriptFollower").value("last_osc_command", "") or "null")
+    except (TypeError, ValueError):
+        return None
+    return d if isinstance(d, dict) and d.get("target_id") else None
+
+
+def remember_command(c):
+    import json
+    from PySide6.QtCore import QSettings
+    QSettings("ScriptFollower", "ScriptFollower").setValue(
+        "last_osc_command", json.dumps({"target_id": c.get("target_id"), "cmd": c.get("cmd") or CUSTOM}))
+
+
 class CommandEditor(QWidget):
     """Un comando OSC: profilo di destinazione, comando del plugin con i suoi parametri o indirizzo libero."""
 
@@ -268,10 +286,10 @@ class PointDialog(QDialog):
             v.addWidget(g)
             for c in self.p.get("commands") or []:
                 self.list.addItem(QListWidgetItem(describe(c, self.targets)))
-            if not self.p.get("commands"):
-                self._add()
-            else:
+            if self.p.get("commands"):                # un pulsante nuovo parte senza comandi: «＋ Aggiungi»
                 self.list.setCurrentRow(0)
+            else:
+                self.editor.load(None)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
@@ -392,15 +410,23 @@ class PointDialog(QDialog):
             self.list.item(r).setText(describe(self._cmds()[r], self.targets))
 
     def _add(self):
-        last = self._cmds()[-1] if self._cmds() else None
-        try:
-            tt = find_target(last, self.targets) if last else self.targets[0]
-        except KeyError:
-            tt = self.targets[0]
+        """Nuovo comando: stesso profilo e stesso comando dell'ultimo usato, ma senza i valori (la cue no)."""
+        last = self._cmds()[-1] if self._cmds() else remembered_command()
+        tt = None
+        if last:
+            try:
+                tt = find_target(last, self.targets)
+            except KeyError:
+                tt = None
+        tt = tt or self.targets[0]
         t = self.targets.index(tt)
         pl = tt["plugin"]
-        first = (plugins().get(pl) or {}).get("commands") or []
-        cid = first[0]["id"] if first and not (pl == "generico") else CUSTOM
+        cmds = (plugins().get(pl) or {}).get("commands") or []
+        ids = [x["id"] for x in cmds]
+        if last and last.get("cmd") and (last["cmd"] in ids or last["cmd"] == CUSTOM) and last.get("target_id") == tt["id"]:
+            cid = last["cmd"]
+        else:
+            cid = ids[0] if ids and pl != "generico" else CUSTOM
         c = {"target": t, "target_id": tt["id"], "cmd": cid, "values": {}, "address": "/", "args": ""}
         self._cmds().append(c)
         self.list.addItem(QListWidgetItem(describe(c, self.targets)))
@@ -441,9 +467,14 @@ class PointDialog(QDialog):
             self.msg.setStyleSheet("color:#6c6;")
 
     # ------------------------------------------------------------ risultato
+    def accept(self):
+        if self.p["kind"] == "button" and self._cmds():
+            remember_command(self._cmds()[-1])
+        super().accept()
+
     def result_point(self):
         if self.p["kind"] == "button":
-            self.p["label"] = self.label.text().strip() or "Pulsante"
+            self.p["label"] = self.label.text().strip() or _("Pulsante")
             self.p["text"] = self.text.toPlainText().strip()
         else:
             self.p["text"] = self.text.toPlainText().strip()

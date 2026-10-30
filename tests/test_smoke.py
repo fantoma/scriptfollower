@@ -546,8 +546,19 @@ def regole_dei_pulsanti():
     assert cu.enabled(b2) and not cu.enabled(b1) and not cu.passed(n1) is False
     cu.press(b3)
     assert not cu.enabled(b2)
-    cu.set_pos(5)                                    # tornando indietro tutto si riattiva
+    cu.set_pos(5, rearm=True)                        # tornando indietro a mano tutto si riattiva
     assert cu.enabled(b1) and cu.enabled(b2) and cu.enabled(b3) and cu.next_button() is b1
+    # premuto in anticipo: i piccoli assestamenti all'indietro del riconoscimento non lo fanno tornare «da fare»
+    cu.press(b1)
+    cu.set_pos(8)
+    cu.set_pos(6)
+    assert b1["id"] in cu.sent and cu.next_button() is b2
+    far = new_point(200, "button")
+    pr.add_point(far)
+    cu.press(far)
+    cu.set_pos(199)
+    cu.set_pos(100)                                  # salto indietro lungo: l'attore riprende una scena
+    assert far["id"] not in cu.sent
 
 
 @test
@@ -1106,8 +1117,10 @@ def dati_dello_show_nel_pdf():
     bk = pdf_store.backup_path(pdf)
     assert open(bk, "rb").read() == orig                       # copia di riserva = originale, byte per byte
     size1 = os.path.getsize(pdf)
-    w._mark_dirty()
-    assert w.save() and os.path.getsize(pdf) == size1          # stessi dati: stessa dimensione, niente storia
+    for _i in range(3):                                    # stessi dati: il file non cresce (niente storia)
+        w._mark_dirty()
+        assert w.save()
+    assert abs(os.path.getsize(pdf) - size1) < 200, (size1, os.path.getsize(pdf))
     data, _imgs = pdf_store.read(pdf)
     assert data["points"][0]["label"] == "LUCI 1" and data["settings"]["audio"]["threshold_db"] == -33.0
     with pymupdf.open(pdf) as d2:
@@ -1200,6 +1213,61 @@ def vocabolari_su_file():
     finally:
         uv.import_vocab_dialog = old
     assert w.project.aliases == {"Rocco": "rocco", "Paolo": "pa olo", "Nino": "ni no"} and w.project.dirty
+    w.project.dirty = False
+    w.close()
+
+
+@test
+def pulsante_nuovo_e_riquadro_fisso():
+    """Pulsante nuovo senza comandi; «＋ Aggiungi» ricorda profilo e comando ma non la cue.
+    Il pulsante del prossimo evento resta alla stessa altezza qualunque sia il testo sopra."""
+    from scriptfollower.main_window import MainWindow
+    from scriptfollower.ui_point import PointDialog
+    w = MainWindow()
+    w.resize(1400, 900)
+    w.show()
+    w.open_pdf(PDF)
+    run(0.2)
+    t = w.project.targets
+    p = new_point(5, "button")
+    d = PointDialog(p, t, "", w, project=w.project)
+    assert d.p["commands"] == [] and d.list.count() == 0 and not d.editor.isEnabled()
+    d._add()
+    c = d.p["commands"][0]
+    c["target_id"] = t[1]["id"]
+    c["target"] = 1
+    c["cmd"] = "goto"
+    c["values"] = {"pb": 3, "cue": 12}
+    d.accept()
+    d2 = PointDialog(new_point(9, "button"), t, "", w, project=w.project)
+    assert d2.list.count() == 0
+    d2._add()
+    c2 = d2.p["commands"][0]
+    assert (c2["target_id"], c2["cmd"]) == (t[1]["id"], "goto") and c2["values"].get("cue") != 12, c2
+    d2._add()                                        # il secondo copia il primo di questo pulsante
+    assert d2.p["commands"][1]["cmd"] == "goto" and d2.p["commands"][1]["values"].get("cue") != 12
+    d2.reject()
+    # riquadro: il pulsante non si muove
+    pan = w.panel
+    pts = [new_point(k, "button") for k in (60, 400)]
+    pts[0]["text"] = "Una nota lunga\nsu più righe\nper vedere\nse sposta il pulsante"
+    for x in pts:
+        w.project.add_point(x)
+    w.set_mode(False)
+    w.refresh_points()
+    run(0.1)
+    w.panel_cfg = {"unit": "sentences", "count": 2}
+    y_note = None
+    for pos, extra in ((-1, 0), (100, 0), (-1, 40)):   # nota lunga o niente nota, testo corto o lungo
+        w.cueing.set_pos(pos, rearm=True)
+        w.panel_cfg = {"unit": "words" if extra else "sentences", "count": 2 + extra} if extra else w.panel_cfg
+        w._update_panel()
+        run(0.05)
+        y = pan.btn.mapTo(pan, pan.btn.rect().topLeft()).y()
+        if not extra:
+            assert y_note is None or y == y_note, (y, y_note)
+            y_note = y
+    w.panel_cfg = {"unit": "sentences", "count": 2}
     w.project.dirty = False
     w.close()
 

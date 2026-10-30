@@ -974,7 +974,7 @@ class MainWindow(QMainWindow):
         if self.doc is None:
             return
         self._timing_events(self.cueing.pos, word, manual)
-        self.cueing.set_pos(word)
+        self.cueing.set_pos(word, rearm=True if manual else None)
         if self.listening and LANGS[self.project.language]["engine"] == "whisper":
             self._update_prompt()
         self.view.canvas.cur_word = word
@@ -1212,7 +1212,17 @@ class MainWindow(QMainWindow):
             self._mark_dirty()
             self._update_panel()
 
+    def _preview_lines(self):
+        """Righe di anteprima da riservare sopra il pulsante, secondo le impostazioni del riquadro."""
+        pc = self.panel_cfg
+        if pc["unit"] == "lines":
+            return pc["count"] + 1
+        if pc["unit"] == "words":
+            return pc["count"] // 6 + 2
+        return 3 * pc["count"]
+
     def _update_panel(self):
+        self.panel.set_preview_lines(self._preview_lines())
         cu = self.cueing
         nb = cu.next_button() if self.doc else None
         if nb is not None:

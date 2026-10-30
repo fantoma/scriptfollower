@@ -1,8 +1,8 @@
 """Riquadro laterale «Prossimo evento»: le frasi che precedono il pulsante, il pulsante, la nota successiva."""
 import html
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtGui import QAbstractTextDocumentLayout, QColor, QFont, QLinearGradient, QPainter, QTextDocument
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from .timing import fmt
@@ -14,6 +14,55 @@ from .ui_util import ElidedLabel
 
 def _big(style, size):
     return style.replace("font-size:14px", f"font-size:{size}px").replace("padding:6px 8px", "padding:12px 10px")
+
+
+class BottomText(QWidget):
+    """Testo dell'anteprima ancorato in basso (vicino al pulsante): se è troppo lungo si taglia in alto, con
+    una sfumatura, e l'altezza del riquadro non cambia mai."""
+    PAD = 10
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.doc = QTextDocument(self)
+        f = QFont(self.font())
+        f.setPixelSize(16)
+        self.doc.setDefaultFont(f)
+        self.doc.setDocumentMargin(0)
+        self._html = ""
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.setMinimumHeight(60)
+
+    def setText(self, html_text):
+        if html_text != self._html:
+            self._html = html_text
+            self.doc.setHtml(html_text)
+            self.update()
+
+    def text(self):
+        return self.doc.toPlainText()
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor("#1c1d22"))
+        p.drawRoundedRect(QRectF(self.rect()), 6, 6)
+        inner = self.rect().adjusted(self.PAD, self.PAD, -self.PAD, -self.PAD)
+        self.doc.setTextWidth(max(10, inner.width()))
+        h = self.doc.size().height()
+        y = inner.bottom() + 1 - h               # sempre in basso: la parola del pulsante sta sopra il pulsante
+        p.save()
+        p.setClipRect(inner)
+        p.translate(inner.left(), y)
+        ctx = QAbstractTextDocumentLayout.PaintContext()
+        ctx.palette.setColor(ctx.palette.ColorRole.Text, QColor("#9a9ca4"))
+        self.doc.documentLayout().draw(p, ctx)
+        p.restore()
+        if h > inner.height():                      # tagliato in alto: sfumatura
+            g = QLinearGradient(0, inner.top(), 0, inner.top() + 28)
+            g.setColorAt(0, QColor(28, 29, 34, 255))
+            g.setColorAt(1, QColor(28, 29, 34, 0))
+            p.fillRect(QRectF(inner.left(), inner.top(), inner.width(), 28), g)
 
 
 class NextPanel(QWidget):
@@ -40,6 +89,13 @@ class NextPanel(QWidget):
         self.eta.setToolTip(_("Tempo stimato: durata media, nelle repliche registrate, dall'ultimo evento a questo.\nSotto: quanto manca secondo la stima (in arancione se si è oltre)."))
         head.addWidget(self.eta)
         v.addLayout(head)
+        # parte sopra il pulsante ad altezza fissa (nota, immagini, anteprima): il pulsante non si sposta mai
+        self.top = QWidget()
+        tv = QVBoxLayout(self.top)
+        tv.setContentsMargins(0, 0, 0, 0)
+        tv.setSpacing(6)
+        v.addWidget(self.top)
+        v = tv
         # nota del pulsante (promemoria per l'operatore), subito sotto il titolo
         self.btn_note = QLabel()
         self.btn_note.setWordWrap(True)
@@ -47,6 +103,7 @@ class NextPanel(QWidget):
         self.btn_note.setStyleSheet("QLabel{background:#2b3a2f;color:#ffffff;border-left:6px solid #2bc060;"
                                     "border-radius:4px;padding:6px 8px;font-size:15px;font-weight:bold;}")
         self.btn_note.setVisible(False)
+        self.btn_note.setMaximumHeight(96)          # al massimo ~3 righe: il resto si legge nel tooltip
         v.addWidget(self.btn_note)
         # immagini del pulsante: miniature, un clic le apre in una finestra
         self.btn_imgs = ThumbStrip(64)
@@ -54,15 +111,10 @@ class NextPanel(QWidget):
         v.addWidget(self.btn_imgs)
         self._btn_title = ""
         self.resolve = lambda rel: rel           # percorso relativo -> assoluto (lo imposta la finestra)
-        self.context = QLabel()
-        self.context.setWordWrap(True)
-        self.context.setTextFormat(Qt.RichText)
-        self.context.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.context.setMinimumHeight(120)
-        self.context.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
-        self.context.setStyleSheet("QLabel{background:#1c1d22;border-radius:6px;padding:10px;font-size:16px;"
-                                   "color:#9a9ca4;}")
-        v.addWidget(self.context)
+        self.context = BottomText()
+        v.addWidget(self.context, 1)
+        v = self.layout()
+        self.set_preview_lines(6)
         self.btn = QPushButton("—")
         self.btn.setFocusPolicy(Qt.NoFocus)
         self.btn.setMinimumHeight(74)
@@ -135,6 +187,7 @@ class NextPanel(QWidget):
         self._key = key
         note = (point or {}).get("text") or ""
         self.btn_note.setText(note)
+        self.btn_note.setToolTip(note if note.count("\n") >= 2 or len(note) > 120 else "")
         self.btn_note.setVisible(bool(note))
         self.btn_imgs.set_paths([self.resolve(r) for r in (point or {}).get("images") or []])
         self._btn_title = (point or {}).get("label") or ""
@@ -169,6 +222,11 @@ class NextPanel(QWidget):
         self.btn.setEnabled(True)
         self.btn.setStyleSheet(_big(STYLE_BTN["next" if blink_on else "next_dim"], 20))
         self.cmds.setText("\n".join(commands) if commands else _("nessun comando OSC (pulsante vuoto)"))
+
+    def set_preview_lines(self, n):
+        """Altezza fissa della parte sopra il pulsante: n righe di anteprima più lo spazio per nota e immagini."""
+        lh = 22                                       # testo a 16 px
+        self.top.setFixedHeight(int(max(4, min(14, n)) * lh + 2 * BottomText.PAD + 150))
 
     def set_eta(self, estimate, left, samples):
         """estimate = durata media stimata (s) · left = secondi che mancano (None se non calcolabile)."""

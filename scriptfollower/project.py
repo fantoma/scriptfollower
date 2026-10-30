@@ -23,6 +23,7 @@ FORMAT = 2
 # canali restano invece sul computer
 SHOW_AUDIO = ("gate_on", "threshold_db", "hold_ms", "gain_db")
 SHOW_REC = ("grammar", "ahead", "min_score", "anchor")
+REARM_JUMP = 60                        # parole: salto indietro del riconoscimento che riattiva i punti
 NOTE_COLORS = ["#e0b040", "#5aa0e0", "#e06a5a", "#6cc070", "#b080e0"]
 
 
@@ -154,10 +155,15 @@ class Cueing:
         self.closed.clear()
         self.forced.clear()
 
-    def set_pos(self, word):
+    def set_pos(self, word, rearm=None):
+        """rearm: True = riposizionamento a mano (i punti successivi si riattivano); None = dal riconoscimento:
+        si riattivano solo con un salto indietro lungo (l'attore riprende una scena), non con i piccoli
+        assestamenti dell'allineamento, che altrimenti farebbero tornare «da fare» un pulsante appena premuto."""
         back = word < self.pos
+        if rearm is None:
+            rearm = back and self.pos - word > REARM_JUMP
         self.pos = word
-        if back:                         # tornando indietro i punti successivi si riattivano
+        if back and rearm:               # tornando indietro i punti successivi si riattivano
             for p in self.project.points:
                 if p["word"] > word:
                     self.sent.discard(p["id"])
