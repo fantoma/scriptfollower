@@ -203,6 +203,24 @@ aggiungono altri nella cartella dei dati `osc_profiles/`:
 Negli argomenti il testo **tra virgolette resta una stringa** (`"12"`), i numeri senza virgolette diventano
 interi o decimali, e `true`/`false` diventano booleani.
 
+### CueStage con istanze secondarie: cambio di master
+
+Se CueStage lavora con istanze secondarie (slave o ridondanza) e il master cade, una secondaria viene
+promossa e ha un altro indirizzo IP. Script Follower lo segue da solo:
+
+- ogni 5 secondi si **presenta** a ogni profilo CueStage (`/cuestage/client/hello`, con la porta di ritorno);
+  il master risponde (`/cuestage/client/ack`) con il suo nome e gli indirizzi delle secondarie, e passa
+  l'elenco dei programmi collegati alle secondarie;
+- la secondaria promossa manda `/cuestage/master` con il suo indirizzo: i profili CueStage che puntavano al
+  vecchio master si spostano lì, Script Follower conferma (`/cuestage/client/moved`) e la barra di stato lo
+  dice. I profili degli altri plugin non si toccano;
+- un messaggio «nuovo master» che non arriva da un'istanza conosciuta viene applicato solo se l'operatore
+  conferma; se non riguarda nessun profilo viene ignorato.
+
+**Impostazioni › OSC › CueStage: cambio di master**: attivo / spento, porta di ritorno (53100; se è occupata
+si usa una delle successive) e stato del collegamento di ogni profilo. Serve una versione di CueStage con
+questa funzione; il protocollo è descritto in `OSC_CLIENTS.md` nel repository di CueStage.
+
 ## GitHub e nuove versioni
 
 Come per CueStage (dettagli in [GITHUB.md](GITHUB.md)):
@@ -288,6 +306,7 @@ macOS chiede il permesso per il microfono.
 | `osc.py` + `osc_profiles/` | profili di destinazione, plugin, invio |
 | `project.py` | dati dello show, JSON esportato, regole dei pulsanti durante lo spettacolo |
 | `pdf_store.py` | dati e immagini dentro il PDF, copia di riserva pulita, scrittura atomica |
+| `cuestage_link.py` | presentazione a CueStage e cambio di master |
 | `ui_*.py`, `main_window.py` | interfaccia |
 
 ## Licenze

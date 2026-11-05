@@ -319,7 +319,44 @@ class SettingsDialog(QDialog):
         self.t_widgets = []
         for t in clean_targets(self.mw.project.targets):
             self._add_target(t)
+        # CueStage con istanze secondarie: se il master cambia, il nuovo master ci dice dove andare
+        lg = QGroupBox(_("CueStage: cambio di master"))
+        lf = QFormLayout(lg)
+        lc = self.mw.link_cfg
+        self.link_on = QCheckBox(_("Presentati a CueStage e segui il nuovo master se cambia"))
+        self.link_on.setChecked(lc["on"])
+        self.link_on.setToolTip(_("Ogni 5 secondi Script Follower si presenta ai profili CueStage. Se il master cade "
+                                  "e una secondaria viene promossa, la nuova istanza comunica il suo indirizzo e i "
+                                  "profili CueStage si spostano lì da soli (serve CueStage con questa funzione)."))
+        lf.addRow(self.link_on)
+        self.link_port = QSpinBox()
+        self.link_port.setRange(1024, 65535)
+        self.link_port.setValue(lc["port"])
+        self.link_port.setToolTip(_("Porta UDP su cui Script Follower riceve le risposte di CueStage (se è occupata "
+                                    "si usa una delle successive)"))
+        lf.addRow(_("Porta di ritorno"), self.link_port)
+        self.link_state = QLabel()
+        self.link_state.setWordWrap(True)
+        self.link_state.setStyleSheet("color:#999;font-size:11px;")
+        lf.addRow(self.link_state)
+        self._link_state()
+        v.addWidget(lg)
         self.tabs.addTab(w, _('OSC'))
+
+    def _link_state(self):
+        lk = self.mw.link
+        rows = []
+        for t in self.mw.project.targets:
+            if t.get("plugin") != "cuestage" or not (t.get("host") or "").strip():
+                continue
+            if lk.connected(t["id"]):
+                rows.append(_("«{0}»: collegato a CueStage «{1}»").format(t["name"], lk.names.get(t["id"]) or t["host"]))
+            else:
+                rows.append(_("«{0}»: CueStage non ha risposto (versione senza questa funzione, spenta o "
+                              "irraggiungibile)").format(t["name"]))
+        if lk.port and lk.port != self.mw.link_cfg["port"]:
+            rows.append(_("In ascolto sulla porta {0}").format(lk.port))
+        self.link_state.setText("\n".join(rows) if rows else _("Nessun profilo CueStage con un indirizzo."))
 
     def _add_target(self, t=None):
         if t is None:
@@ -578,6 +615,7 @@ class SettingsDialog(QDialog):
         self.timer.stop()
         self.mw.set_audio(self.audio_cfg())
         self.mw.apply_settings(self.targets(), self.rec_cfg(), self.panel_cfg())
+        self.mw.set_link({"on": self.link_on.isChecked(), "port": self.link_port.value()})
         super().accept()
 
     def reject(self):

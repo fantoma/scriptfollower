@@ -67,6 +67,18 @@ class MainWindow(QMainWindow):
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(30000)
         self._autosave_timer.timeout.connect(self._autosave)
+        # CueStage: Script Follower si presenta e segue il cambio di master (cuestage_link.py)
+        from .cuestage_link import CueStageLink, link_settings
+        cid = self.qs.value("client_id") or ""
+        if not cid:
+            import uuid
+            cid = uuid.uuid4().hex[:12]
+            self.qs.setValue("client_id", cid)
+        self.link_cfg = link_settings(self._qs_json("cuestage_link"))
+        self.link = CueStageLink(cid, self)
+        self.link.master.connect(self._cuestage_master)
+        self.link.status.connect(self.status)
+        QTimer.singleShot(0, lambda: self.link.configure(self.link_cfg, self.project.targets))
         self.test_speed = 1.0
         self._blink = True
 
@@ -786,6 +798,8 @@ class MainWindow(QMainWindow):
             self.doc.close()
         self.project = p
         p.targets = clean_targets(p.targets)
+        if hasattr(self, "link"):
+            self.link.set_targets(p.targets)
         migrate_commands(p.points, p.targets)        # i vecchi progetti: comandi legati al profilo per id
         self.doc = doc
         doc.set_overrides(p.overrides)
@@ -818,6 +832,7 @@ class MainWindow(QMainWindow):
         self.stop_listen()
         if self.audiotest is not None:
             self.audiotest.close()
+        self.link.stop()
         self.audio.close()
         if self.sim is not None:
             self.sim.close()
@@ -1568,6 +1583,7 @@ class MainWindow(QMainWindow):
             self._mark_dirty()
             self._qs_save("osc_targets", targets)
             self.refresh_points()
+        self.link.set_targets(self.project.targets)
         changed_vocab = rec["grammar"] != self.rec_cfg["grammar"] or rec["model"] != self.rec_cfg["model"]
         self.rec_cfg = rec
         self._qs_save("recognition", rec)
@@ -1575,6 +1591,42 @@ class MainWindow(QMainWindow):
         if self.listening and changed_vocab:
             self.stop_listen()
             self.start_listen()
+
+    # =========================================================== CueStage: cambio di master
+    def set_link(self, cfg):
+        from .cuestage_link import link_settings
+        self.link_cfg = link_settings(cfg)
+        self._qs_save("cuestage_link", self.link_cfg)
+        self.link.configure(self.link_cfg, self.project.targets)
+
+    def _cuestage_master(self, new_ip, port, name, old_ip, sender, trusted):
+        """Una CueStage dice di essere il nuovo master: i profili CueStage del vecchio master passano lì."""
+        from .cuestage_link import plan_move
+        moves = plan_move(self.project.targets, new_ip, port, old_ip, self.link.known)
+        if not moves:
+            if not trusted:
+                self.status(_("Ignorato un messaggio «nuovo master» da {0}: nessun profilo CueStage lo riguarda").format(sender))
+            return
+        who = f"«{name}» ({new_ip}:{port})" if name else f"{new_ip}:{port}"
+        names = ", ".join(f"«{self.project.targets[i]['name']}»" for i, _pid in moves)
+        if not trusted:
+            r = QMessageBox.question(self, APP_NAME, _(
+                "CueStage {0} dice di essere il nuovo master, ma il messaggio arriva da un indirizzo che non fa "
+                "parte del gruppo di istanze conosciuto ({1}).\n\nSpostare lì i profili {2}?").format(who, sender, names),
+                QMessageBox.Yes | QMessageBox.No)
+            if r != QMessageBox.Yes:
+                return
+        targets = [dict(t) for t in self.project.targets]
+        for i, _pid in moves:
+            targets[i]["host"] = new_ip
+            targets[i]["port"] = int(port)
+        self.project.targets = targets
+        self._mark_dirty()
+        self._qs_save("osc_targets", targets)
+        self.link.set_targets(targets)
+        self.link.moved(new_ip, port, [pid for _i, pid in moves])
+        self.refresh_points()
+        self.status(_("⇄ Nuovo master CueStage {0}: profili {1} spostati").format(who, names))
 
     # =========================================================== simulazione
     def simulate_dialog(self):

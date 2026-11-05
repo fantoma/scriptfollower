@@ -1272,5 +1272,86 @@ def pulsante_nuovo_e_riquadro_fisso():
     w.close()
 
 
+@test
+def cuestage_cambio_di_master():
+    """Script Follower si presenta a CueStage (simulata) e segue il nuovo master; i messaggi estranei no."""
+    from pythonosc.dispatcher import Dispatcher
+    from pythonosc.osc_server import ThreadingOSCUDPServer
+    from pythonosc.udp_client import SimpleUDPClient
+    from scriptfollower.cuestage_link import plan_move
+    from scriptfollower.main_window import MainWindow
+    from scriptfollower.osc import send_commands
+    asked = []
+    old_q = QMessageBox.question
+    servers = []
+
+    def fake_cuestage(name, members=""):
+        got = []
+        disp = Dispatcher()
+
+        def h(addr, path, *args):
+            got.append((path, list(args)))
+            if path == "/cuestage/client/hello":
+                SimpleUDPClient(addr[0], int(args[3])).send_message("/cuestage/client/ack",
+                                                                    [name, srv.server_address[1], members])
+        disp.set_default_handler(h, needs_reply_address=True)
+        srv = ThreadingOSCUDPServer(("127.0.0.1", 0), disp)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        servers.append(srv)
+        return srv.server_address[1], got
+
+    pa, got_a = fake_cuestage("Regia-A")
+    pb, got_b = fake_cuestage("Regia-B")
+    w = MainWindow()
+    try:
+        t = w.project.targets
+        t[0].update(host="127.0.0.1", port=pa, plugin="cuestage", name="Audio")
+        t[1].update(host="192.168.1.77", port=8000, plugin="chamsys_magicq", name="Luci")
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.bind(("127.0.0.1", 0))
+        back = s.getsockname()[1]
+        s.close()
+        w.set_link({"on": True, "port": back})
+        w.link.set_targets(t)
+        w.link.hello()
+        run(0.5)
+        hello = [a for p, a in got_a if p == "/cuestage/client/hello"]
+        assert hello and hello[-1][0] == "scriptfollower" and hello[-1][3] == w.link.port and hello[-1][5] == t[0]["id"]
+        assert w.link.connected(t[0]["id"]) and w.link.names[t[0]["id"]] == "Regia-A"
+        # il nuovo master (Regia-B, sulla stessa macchina in questa prova) si annuncia
+        SimpleUDPClient("127.0.0.1", w.link.port).send_message("/cuestage/master", ["127.0.0.1", pb, "Regia-B", "127.0.0.1"])
+        run(0.5)
+        assert (w.project.targets[0]["host"], w.project.targets[0]["port"]) == ("127.0.0.1", pb)
+        assert w.project.targets[1]["host"] == "192.168.1.77" and w.project.dirty
+        assert any(p == "/cuestage/client/moved" for p, _a in got_b)
+        send_commands([{"target_id": t[0]["id"], "cmd": "go", "values": {}}], w.project.targets)
+        run(0.3)
+        assert ("/go", []) in got_b
+        # da un indirizzo sconosciuto che non riguarda nessun profilo: ignorato senza chiedere
+        QMessageBox.question = staticmethod(lambda *a, **k: (asked.append(1), QMessageBox.No)[1])
+        w.link._master("10.9.9.9", ["10.9.9.9", 53000, "Intruso", ""])
+        assert not asked and w.project.targets[0]["port"] == pb
+        # da uno sconosciuto che dice di sostituire il nostro master: si chiede (qui «No»)
+        w.link.known = {}
+        w._cuestage_master("10.9.9.9", 53000, "Intruso", "127.0.0.1", "10.9.9.9", False)
+        assert asked and w.project.targets[0]["port"] == pb
+        # regole di scelta dei profili
+        tg = [{"id": "a", "plugin": "cuestage", "host": "10.0.0.1", "port": 53000},
+              {"id": "b", "plugin": "cuestage", "host": "10.0.0.9", "port": 53000},
+              {"id": "c", "plugin": "qlab", "host": "10.0.0.1", "port": 53000}]
+        assert plan_move(tg, "10.0.0.2", 53000, "10.0.0.1", {}) == [(0, "a")]
+        assert plan_move(tg, "10.0.0.2", 53000, "", {"b": {"10.0.0.9", "10.0.0.2"}}) == [(1, "b")]
+        assert plan_move(tg, "10.0.0.2", 53000, "", {}) == [(0, "a"), (1, "b")]
+        assert plan_move(tg, "10.0.0.2", 53000, "", {"a": {"10.0.0.1"}}) == []
+    finally:
+        QMessageBox.question = old_q
+        w.link.stop()
+        for srv in servers:
+            srv.shutdown()
+            srv.server_close()
+        w.project.dirty = False
+        w.close()
+
+
 print(f"\n{len(FAILED)} prove fallite" + (f": {', '.join(FAILED)}" if FAILED else ""))
 sys.exit(len(FAILED))
