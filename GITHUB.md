@@ -1,6 +1,6 @@
 # Script Follower su GitHub: pacchetti portable per Linux, Windows e macOS
 
-Funziona esattamente come CueStage. GitHub Actions costruisce e prova Script Follower su macchine Linux,
+Funziona esattamente come Cuevivo. GitHub Actions costruisce e prova Script Follower su macchine Linux,
 Windows e Mac messe a disposizione da GitHub. Tu carichi il progetto una volta. Poi, per ogni nuova
 versione, basta `./release.sh`: dopo circa mezz'ora la pagina **Releases** contiene i pacchetti.
 
@@ -25,19 +25,19 @@ Se qualcosa non va, la Release non riceve quel file e il motivo si legge nella s
 
 ## 1. Account e repository (una volta sola)
 
-L'account GitHub ce l'hai già (lo stesso di CueStage, `fantoma`). Scegli se il repository sarà **pubblico** o
+L'account GitHub ce l'hai già (lo stesso di Cuevivo, `fantoma`). Scegli se il repository sarà **pubblico** o
 **privato**:
 
-- **Pubblico** (come CueStage): GitHub Actions è **gratuito senza limiti** di minuti e di spazio.
+- **Pubblico** (come Cuevivo): GitHub Actions è **gratuito senza limiti** di minuti e di spazio.
 - **Privato**: il piano Free comprende 2000 minuti al mese e 500 MB per gli artifact.
   - I minuti Windows contano doppio e quelli Mac 10 volte.
   - Una versione completa costa circa 300–400 minuti.
-  - Il conto è **condiviso con CueStage** se anche quello è privato.
+  - Il conto è **condiviso con Cuevivo** se anche quello è privato.
 
 ## 2. Caricare il progetto (da Ubuntu, una volta sola)
 
 La cartella che ti ho mandato è già un repository git, con il primo commit fatto. Se `git` e `gh` sono già
-configurati per CueStage, bastano due comandi:
+configurati per Cuevivo, bastano due comandi:
 
 ```bash
 unzip scriptfollower-0.2.1.zip && cd scriptfollower
@@ -75,7 +75,7 @@ git config --global user.email "la-tua-email@esempio.it"
 ./release.sh --prova      # mostra cosa farebbe, senza cambiare né inviare nulla
 ```
 
-Come in CueStage, lo script fa queste cose, nell'ordine:
+Come in Cuevivo, lo script fa queste cose, nell'ordine:
 1. controlla git, il collegamento a GitHub e che la versione sia nuova;
 2. se vuoi, esegue i test di regressione in locale;
 3. scrive la versione in `scriptfollower/__init__.py`, fa il commit e lo invia;
@@ -117,10 +117,10 @@ GitHub › **Actions** › **Build** › **Run workflow**.
   - Al primo ASCOLTA, macOS chiede il permesso per il **microfono**: rispondi *Consenti*.
   - Alla domanda sulla **rete locale** rispondi *Consenti*: serve per inviare l'OSC.
 
-La firma e la notarizzazione Apple si attivano con gli stessi segreti del repository di CueStage
+La firma e la notarizzazione Apple si attivano con gli stessi segreti del repository di Cuevivo
 (`MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `MACOS_CODESIGN_ID`, `APPLE_ID`, `APPLE_TEAM_ID`,
 `APPLE_APP_PASSWORD`). Vanno ricreati in questo repository: GitHub › **Settings** › **Secrets and
-variables** › **Actions**. Vedi il punto 5 di GITHUB.md di CueStage.
+variables** › **Actions**. Vedi il punto 5 di GITHUB.md di Cuevivo.
 
 ## 6. Costruire a mano (senza GitHub)
 

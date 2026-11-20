@@ -179,7 +179,7 @@ class SettingsDialog(QDialog):
         v.addWidget(self.err)
         v.addStretch(1)
         from PySide6.QtWidgets import QFrame, QScrollArea
-        sa = QScrollArea()                     # come in CueStage: la scheda scorre, i controlli non si schiacciano
+        sa = QScrollArea()                     # come in Cuevivo: la scheda scorre, i controlli non si schiacciano
         sa.setWidgetResizable(True)
         sa.setFrameShape(QFrame.NoFrame)
         sa.setWidget(w)
@@ -293,7 +293,7 @@ class SettingsDialog(QDialog):
     def _build_osc(self):
         w = QWidget()
         v = QVBoxLayout(w)
-        intro = QLabel(_("Profili di destinazione per i pulsanti (quanti ne servono). Il <b>plugin</b> dice che cosa c'è dall'altra parte (CueStage, QLab, SCS, ChamSys…) e offre i suoi comandi già pronti nei pulsanti; con «Generico» scrivi indirizzo e argomenti a mano. I profili sono salvati nel progetto."))
+        intro = QLabel(_("Profili di destinazione per i pulsanti (quanti ne servono). Il <b>plugin</b> dice che cosa c'è dall'altra parte (Cuevivo, QLab, SCS, ChamSys…) e offre i suoi comandi già pronti nei pulsanti; con «Generico» scrivi indirizzo e argomenti a mano. I profili sono salvati nel progetto."))
         intro.setWordWrap(True)
         v.addWidget(intro)
         row = QHBoxLayout()
@@ -301,7 +301,7 @@ class SettingsDialog(QDialog):
         add.clicked.connect(lambda: self._add_target())
         row.addWidget(add)
         scan = QPushButton(_('🔍 Cerca in rete…'))
-        scan.setToolTip(_('Cerca CueStage, QLab, console ChamSys e porte OSC aperte nella rete locale, e configura i profili'))
+        scan.setToolTip(_('Cerca Cuevivo, QLab, console ChamSys e porte OSC aperte nella rete locale, e configura i profili'))
         scan.clicked.connect(self._scan)
         row.addWidget(scan)
         row.addStretch(1)
@@ -319,20 +319,20 @@ class SettingsDialog(QDialog):
         self.t_widgets = []
         for t in clean_targets(self.mw.project.targets):
             self._add_target(t)
-        # CueStage con istanze secondarie: se il master cambia, il nuovo master ci dice dove andare
-        lg = QGroupBox(_("CueStage: cambio di master"))
+        # Cuevivo con istanze secondarie: se il master cambia, il nuovo master ci dice dove andare
+        lg = QGroupBox(_("Cuevivo: cambio di master"))
         lf = QFormLayout(lg)
         lc = self.mw.link_cfg
-        self.link_on = QCheckBox(_("Presentati a CueStage e segui il nuovo master se cambia"))
+        self.link_on = QCheckBox(_("Presentati a Cuevivo e segui il nuovo master se cambia"))
         self.link_on.setChecked(lc["on"])
-        self.link_on.setToolTip(_("Ogni 5 secondi Script Follower si presenta ai profili CueStage. Se il master cade "
+        self.link_on.setToolTip(_("Ogni 5 secondi Script Follower si presenta ai profili Cuevivo. Se il master cade "
                                   "e una secondaria viene promossa, la nuova istanza comunica il suo indirizzo e i "
-                                  "profili CueStage si spostano lì da soli (serve CueStage con questa funzione)."))
+                                  "profili Cuevivo si spostano lì da soli (serve Cuevivo con questa funzione)."))
         lf.addRow(self.link_on)
         self.link_port = QSpinBox()
         self.link_port.setRange(1024, 65535)
         self.link_port.setValue(lc["port"])
-        self.link_port.setToolTip(_("Porta UDP su cui Script Follower riceve le risposte di CueStage (se è occupata "
+        self.link_port.setToolTip(_("Porta UDP su cui Script Follower riceve le risposte di Cuevivo (se è occupata "
                                     "si usa una delle successive)"))
         lf.addRow(_("Porta di ritorno"), self.link_port)
         self.link_state = QLabel()
@@ -347,16 +347,16 @@ class SettingsDialog(QDialog):
         lk = self.mw.link
         rows = []
         for t in self.mw.project.targets:
-            if t.get("plugin") != "cuestage" or not (t.get("host") or "").strip():
+            if t.get("plugin") != "cuevivo" or not (t.get("host") or "").strip():
                 continue
             if lk.connected(t["id"]):
-                rows.append(_("«{0}»: collegato a CueStage «{1}»").format(t["name"], lk.names.get(t["id"]) or t["host"]))
+                rows.append(_("«{0}»: collegato a Cuevivo «{1}»").format(t["name"], lk.names.get(t["id"]) or t["host"]))
             else:
-                rows.append(_("«{0}»: CueStage non ha risposto (versione senza questa funzione, spenta o "
+                rows.append(_("«{0}»: Cuevivo non ha risposto (versione senza questa funzione, spenta o "
                               "irraggiungibile)").format(t["name"]))
         if lk.port and lk.port != self.mw.link_cfg["port"]:
             rows.append(_("In ascolto sulla porta {0}").format(lk.port))
-        self.link_state.setText("\n".join(rows) if rows else _("Nessun profilo CueStage con un indirizzo."))
+        self.link_state.setText("\n".join(rows) if rows else _("Nessun profilo Cuevivo con un indirizzo."))
 
     def _add_target(self, t=None):
         if t is None:

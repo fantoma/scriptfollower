@@ -1,8 +1,8 @@
 {
-  "id": "cuestage",
-  "name": "CueStage",
+  "id": "cuevivo",
+  "name": "Cuevivo",
   "port": 53000,
-  "notes": "In CueStage: Impostazioni › OSC › «Ricevi comandi OSC», porta UDP (predefinita 53000). Il numero di cue è quello della colonna «N.» (es. 12 o 3.5). Un indirizzo OSC personalizzato di una cue (scheda «Base») si manda con «Indirizzo personalizzato».",
+  "notes": "In Cuevivo: Impostazioni › OSC › «Ricevi comandi OSC», porta UDP (predefinita 53000). Il numero di cue è quello della colonna «N.» (es. 12 o 3.5). Un indirizzo OSC personalizzato di una cue (scheda «Base») si manda con «Indirizzo personalizzato».",
   "commands": [
     {"id": "go", "label": "GO (cue al playhead)", "address": "/go", "args": []},
     {"id": "cue_start", "label": "Avvia una cue", "address": "/cue/{cue}/start", "args": [],

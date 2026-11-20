@@ -51,7 +51,7 @@ def main():
     app.setWindowIcon(QIcon(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")))
     app.setDesktopFileName("scriptfollower")
     app.setStyle("Fusion")
-    pal = QPalette()                         # stessa tavolozza scura di CueStage
+    pal = QPalette()                         # stessa tavolozza scura di Cuevivo
     base = {
         QPalette.Window: (37, 38, 44), QPalette.WindowText: (225, 225, 230),
         QPalette.Base: (28, 29, 34), QPalette.AlternateBase: (34, 35, 41),

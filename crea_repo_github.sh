@@ -54,7 +54,7 @@ echo
 echo "   Creo  https://github.com/$USER_GH/$NAME  (${VIS#--})  e carico il ramo main."
 ask "Procedo?" || { echo "Annullato."; exit 1; }
 gh repo create "$NAME" "$VIS" --source=. --remote=origin --push \
-    --description "Segue il parlato degli attori e fa scorrere il copione teatrale (PDF), con pulsanti OSC per CueStage, QLab, SCS, ChamSys"
+    --description "Segue il parlato degli attori e fa scorrere il copione teatrale (PDF), con pulsanti OSC per Cuevivo, QLab, SCS, ChamSys"
 printf '%s ✔%s fatto: https://github.com/%s/%s\n' "$G" "$N" "$USER_GH" "$NAME"
 echo "   Il primo «Build» (test su Linux) parte da solo: https://github.com/$USER_GH/$NAME/actions"
 echo "   Per pubblicare una versione con i pacchetti: ./release.sh"

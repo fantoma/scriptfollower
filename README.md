@@ -2,9 +2,9 @@
 
 Ascolta le voci degli attori da una scheda audio, capisce in che punto del copione si trova lo spettacolo e fa
 scorrere il **PDF del copione** di conseguenza. Nei punti scelti in preparazione mostra **annotazioni** e
-**pulsanti OSC** per CueStage, QLab, SCS, ChamSys MagicQ o qualunque dispositivo OSC.
+**pulsanti OSC** per Cuevivo, QLab, SCS, ChamSys MagicQ o qualunque dispositivo OSC.
 
-Stesso stack e stessa veste grafica di [CueStage](https://github.com/fantoma/cuestage): Python 3, PySide6
+Stesso stack e stessa veste grafica di [Cuevivo](https://github.com/fantoma/cuevivo) (prima si chiamava CueStage): Python 3, PySide6
 (Qt, stile Fusion scuro), sounddevice/PortAudio, python-osc. In più: **Vosk** (riconoscimento vocale offline)
 e **PyMuPDF** (PDF); per lo sloveno **Whisper** (CTranslate2).
 
@@ -165,13 +165,13 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
   il gate è chiuso), quello che arriva al riconoscitore (barra blu) e il LED del gate. La **soglia** si regola
   trascinando il cursore bianco sul meter, anche quello piccolo nella barra in alto (o con rotella e frecce).
   C'è anche il tempo di hold.
-  - **Preascolto (cuffia)**, come in CueStage: il canale d'ingresso esce su una **scheda dedicata**. Si
+  - **Preascolto (cuffia)**, come in Cuevivo: il canale d'ingresso esce su una **scheda dedicata**. Si
     scelgono i canali (coppia stereo o canale mono), il volume e se ascoltare **prima o dopo il gate**.
     Dopo il gate si sente esattamente ciò che arriva al riconoscitore, ed è comodo per regolare la soglia.
     Il tasto 🎧 accanto al meter in alto lo accende e lo spegne.
 - **Profili OSC**: quanti ne servono (**＋ Aggiungi profilo OSC**, **Elimina profilo**), ciascuno con nome,
   indirizzo IP, porta, appunto e **plugin**. Prima di eliminare un profilo usato dai pulsanti, l'app avvisa.
-  - **🔍 Cerca in rete…** trova **CueStage** (ricerca delle istanze, interfaccia web) e **QLab** (OSC su
+  - **🔍 Cerca in rete…** trova **Cuevivo** (ricerca delle istanze, interfaccia web) e **QLab** (OSC su
     TCP 53000, riconosciuto dalla versione).
   - Trova anche le console **ChamSys** e gli altri nodi Art-Net, e le **porte OSC UDP** più usate sui computer
     accesi. Per l'UDP è solo un indizio: le risposte «porta chiusa» sono limitate a una al secondo, quindi
@@ -189,12 +189,12 @@ né effetti.
 
 ## Plugin OSC
 
-File JSON in `scriptfollower/osc_profiles/`, nello **stesso formato dei profili OSC di CueStage**. Se ne
+File JSON in `scriptfollower/osc_profiles/`, nello **stesso formato dei profili OSC di Cuevivo**. Se ne
 aggiungono altri nella cartella dei dati `osc_profiles/`:
 
 | Plugin | Porta | Comandi principali |
 |---|---|---|
-| CueStage | 53000 | `/go`, `/cue/N/start`, `/cue/N/stop`, `/cue/N/level`, `/playhead/N`, `/list/NOME/go`, `/xfade`, `/dim`… |
+| Cuevivo | 53000 | `/go`, `/cue/N/start`, `/cue/N/stop`, `/cue/N/level`, `/playhead/N`, `/list/NOME/go`, `/xfade`, `/dim`… |
 | QLab 4/5 | 53000 | `/go`, `/cue/N/start`, `/stop`, `/load`, `/playhead/N`, `/playhead/next`, `/panic`… |
 | SCS (Pro Plus) | a scelta | `/ctrl/go`, `/ctrl/gotop`, `/ctrl/goto "Q1"`, `/cue/go "Q1"`, `/hkey/go "A"`, `/fader/setmaster -12.0`… |
 | ChamSys MagicQ | 8000 | `/pb/N/go`, `/pb/N/CUE`, `/exec/P/I`, `/pb/N` livello, `/dbo`, `/rpc`… |
@@ -203,27 +203,30 @@ aggiungono altri nella cartella dei dati `osc_profiles/`:
 Negli argomenti il testo **tra virgolette resta una stringa** (`"12"`), i numeri senza virgolette diventano
 interi o decimali, e `true`/`false` diventano booleani.
 
-### CueStage con istanze secondarie: cambio di master
+### Cuevivo con istanze secondarie: cambio di master
 
-Se CueStage lavora con istanze secondarie (slave o ridondanza) e il master cade, una secondaria viene
+Se Cuevivo lavora con istanze secondarie (slave o ridondanza) e il master cade, una secondaria viene
 promossa e ha un altro indirizzo IP. Script Follower lo segue da solo:
 
-- ogni 5 secondi si **presenta** a ogni profilo CueStage (`/cuestage/client/hello`, con la porta di ritorno);
+- ogni 5 secondi si **presenta** a ogni profilo Cuevivo (`/cuestage/client/hello`, con la porta di ritorno);
   il master risponde (`/cuestage/client/ack`) con il suo nome e gli indirizzi delle secondarie, e passa
   l'elenco dei programmi collegati alle secondarie;
-- la secondaria promossa manda `/cuestage/master` con il suo indirizzo: i profili CueStage che puntavano al
+- la secondaria promossa manda `/cuestage/master` con il suo indirizzo: i profili Cuevivo che puntavano al
   vecchio master si spostano lì, Script Follower conferma (`/cuestage/client/moved`) e la barra di stato lo
   dice. I profili degli altri plugin non si toccano;
 - un messaggio «nuovo master» che non arriva da un'istanza conosciuta viene applicato solo se l'operatore
   conferma; se non riguarda nessun profilo viene ignorato.
 
-**Impostazioni › OSC › CueStage: cambio di master**: attivo / spento, porta di ritorno (53100; se è occupata
-si usa una delle successive) e stato del collegamento di ogni profilo. Serve una versione di CueStage con
-questa funzione; il protocollo è descritto in `OSC_CLIENTS.md` nel repository di CueStage.
+**Impostazioni › OSC › Cuevivo: cambio di master**: attivo / spento, porta di ritorno (53100; se è occupata
+si usa una delle successive) e stato del collegamento di ogni profilo. Serve una versione di Cuevivo con
+questa funzione; il protocollo è descritto in `OSC_CLIENTS.md` nel repository di Cuevivo.
+I messaggi usano lo spazio dei nomi storico `/cuestage/…`, che Cuevivo continua ad accettare (insieme a
+`/cuevivo/…`) e che capiscono anche le versioni con il nome CueStage. I progetti e i PDF salvati con profili
+«CueStage» si aprono con i profili già passati al plugin «Cuevivo».
 
 ## GitHub e nuove versioni
 
-Come per CueStage (dettagli in [GITHUB.md](GITHUB.md)):
+Come per Cuevivo (dettagli in [GITHUB.md](GITHUB.md)):
 
 ```bash
 ./crea_repo_github.sh      # una volta sola: crea fantoma/scriptfollower e carica il progetto
@@ -286,7 +289,7 @@ Il modello incluso è `vosk-model-small-it-0.22` (circa 50 MB). Il modello itali
 | Windows | `packaging\build_windows.ps1` | `dist\ScriptFollower-X.Y.Z-windows-portable.zip` |
 | macOS | `packaging/build_macos.sh` | `dist/ScriptFollower-X.Y.Z-macos-arm64.dmg` (e `x86_64`) |
 
-`MODEL_URL=""` costruisce senza modello incluso. Su GitHub il flusso è lo stesso di CueStage: push su `main`
+`MODEL_URL=""` costruisce senza modello incluso. Su GitHub il flusso è lo stesso di Cuevivo: push su `main`
 avvia i test su Linux; **Actions › Build › Run workflow** produce i pacchetti dei tre sistemi negli Artifacts;
 un tag `vX.Y.Z` uguale a `__version__` crea una Release con i pacchetti allegati. Su macOS, senza un
 certificato Developer ID, la prima apertura si fa con tasto destro › Apri, e alla prima pressione di ASCOLTA
@@ -306,10 +309,10 @@ macOS chiede il permesso per il microfono.
 | `osc.py` + `osc_profiles/` | profili di destinazione, plugin, invio |
 | `project.py` | dati dello show, JSON esportato, regole dei pulsanti durante lo spettacolo |
 | `pdf_store.py` | dati e immagini dentro il PDF, copia di riserva pulita, scrittura atomica |
-| `cuestage_link.py` | presentazione a CueStage e cambio di master |
+| `cuevivo_link.py` | presentazione a Cuevivo e cambio di master |
 | `ui_*.py`, `main_window.py` | interfaccia |
 
 ## Licenze
 
-GPL v3 (come CueStage). PyMuPDF è AGPL v3, compatibile con un progetto GPL v3 open source. Vosk e i suoi
+GPL v3 (come Cuevivo). PyMuPDF è AGPL v3, compatibile con un progetto GPL v3 open source. Vosk e i suoi
 modelli sono Apache 2.0. CTranslate2, tokenizers e i modelli Whisper sono MIT; libsndfile (in soundfile) è LGPL.

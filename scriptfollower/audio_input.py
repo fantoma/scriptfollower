@@ -28,7 +28,7 @@ AUDIO_DEFAULTS = {
     "threshold_db": -45.0,   # soglia del gate (dBFS)
     "hold_ms": 400,          # resta aperto dopo che il segnale è sceso sotto la soglia
     "gain_db": 0.0,          # guadagno digitale prima del riconoscitore
-    # preascolto (cuffia) dell'ingresso su una scheda dedicata, come il preascolto di CueStage
+    # preascolto (cuffia) dell'ingresso su una scheda dedicata, come il preascolto di Cuevivo
     "mon_on": False,
     "mon_device": "",        # scheda in uscita ("" = predefinita di sistema)
     "mon_channels": "1-2",   # «1», «2», «1-2», «3-4»…: canali dell'uscita (lo stesso segnale mono su tutti)

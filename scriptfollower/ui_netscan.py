@@ -29,7 +29,7 @@ class NetScanDialog(QDialog):
         self._cancel = False
         v = QVBoxLayout(self)
         intro = QLabel(
-            _("Cerca nella rete locale: <b>CueStage</b> (ricerca delle istanze e interfaccia web), <b>QLab</b> (OSC su TCP 53000, riconosciuto dalla versione), console <b>ChamSys</b> e altri nodi luci (Art-Net), e le <b>porte OSC</b> più usate su ogni computer acceso. L'OSC viaggia su UDP e una porta UDP aperta di solito non risponde: i risultati con ✔ sono certi, quelli con ? sono indizi da verificare (per esempio con «Prova: invia adesso» in un pulsante)."))
+            _("Cerca nella rete locale: <b>Cuevivo</b> (ricerca delle istanze e interfaccia web), <b>QLab</b> (OSC su TCP 53000, riconosciuto dalla versione), console <b>ChamSys</b> e altri nodi luci (Art-Net), e le <b>porte OSC</b> più usate su ogni computer acceso. L'OSC viaggia su UDP e una porta UDP aperta di solito non risponde: i risultati con ✔ sono certi, quelli con ? sono indizi da verificare (per esempio con «Prova: invia adesso» in un pulsante)."))
         intro.setWordWrap(True)
         v.addWidget(intro)
         row = QHBoxLayout()
@@ -38,7 +38,7 @@ class NetScanDialog(QDialog):
         row.addWidget(self.go_btn)
         self.sweep = QCheckBox(_('Controlla tutti gli indirizzi della rete (/24)'))
         self.sweep.setChecked(True)
-        self.sweep.setToolTip(_('Spento: solo questo computer, CueStage e le console Art-Net (più veloce)'))
+        self.sweep.setToolTip(_('Spento: solo questo computer, Cuevivo e le console Art-Net (più veloce)'))
         row.addWidget(self.sweep)
         row.addStretch(1)
         v.addLayout(row)

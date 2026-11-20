@@ -3,8 +3,9 @@
 L'OSC viaggia quasi sempre su UDP, e una porta UDP aperta di solito non risponde: non c'è un modo sicuro di
 «vedere» chi ascolta. Si combinano allora più indizi, ognuno con il suo grado di certezza:
 
-- **CueStage**: risponde alla ricerca delle istanze («CUESTAGE-MASTER?», UDP 53901) se ha le istanze secondarie
-  attive; la sua interfaccia web (HTTP, di solito 8080) si presenta come «CueStage». OSC: porta 53000.
+- **Cuevivo** (ex CueStage): risponde alla ricerca delle istanze («CUESTAGE-MASTER?», UDP 53901, identificativo
+  «CueStage» anche dopo il cambio di nome) se ha le istanze secondarie
+  attive; la sua interfaccia web (HTTP, di solito 8080) si presenta come «Cuevivo». OSC: porta 53000.
 - **QLab**: accetta OSC anche su **TCP 53000**; alla richiesta /version (OSC su TCP con SLIP) risponde con la
   versione. Così è riconosciuto con certezza.
 - **ChamSys MagicQ** e altri nodi luci: rispondono ad Art-Net ArtPoll (UDP 6454) con il loro nome. La porta
@@ -22,7 +23,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from .i18n import _
 
-OSC_UDP_PORTS = {53000: "cuestage", 58000: "scs", 8000: "chamsys_magicq", 9000: "generico", 7000: "generico"}
+OSC_UDP_PORTS = {53000: "cuevivo", 58000: "scs", 8000: "chamsys_magicq", 9000: "generico", 7000: "generico"}
 ICMP_GAP = 1.05                         # i sistemi limitano le risposte «porta chiusa» a circa una al secondo
 CONTROL_PORT = 9                        # «discard»: quasi sempre chiusa, serve da confronto
 
@@ -196,7 +197,7 @@ def qlab_version(host, port=53000, timeout=1.0):
 
 
 def http_server_name(host, port=8080, timeout=0.8):
-    """Intestazione «Server» di un server HTTP (CueStage risponde «CueStage»)."""
+    """Intestazione «Server» di un server HTTP (Cuevivo risponde «Cuevivo»)."""
     try:
         with socket.create_connection((host, port), timeout=timeout) as s:
             s.settimeout(timeout)
@@ -257,8 +258,8 @@ def udp_open_ports(host, ports=tuple(OSC_UDP_PORTS), cancel=None, gap=None):
     return out
 
 
-def cuestage_masters(local_ips, timeout=1.0):
-    """Istanze di CueStage con le istanze secondarie attive (rispondono alla ricerca)."""
+def cuevivo_masters(local_ips, timeout=1.0):
+    """Istanze di Cuevivo con le istanze secondarie attive (rispondono alla ricerca)."""
     found = []
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -281,7 +282,7 @@ def cuestage_masters(local_ips, timeout=1.0):
             except ValueError:
                 continue
             if info.get("app") == "CueStage":
-                found.append({"host": ip, "name": info.get("name") or "CueStage"})
+                found.append({"host": ip, "name": info.get("name") or "Cuevivo"})
     finally:
         s.close()
     return found
@@ -349,10 +350,10 @@ def scan(progress=None, cancel=None, tcp_ports=(53000, 8080), sweep=True):
             results.append({"host": host, "port": port, "plugin": plugin, "name": name, "how": how,
                             "sure": sure})
 
-    say(_('Ricerca di CueStage e delle console luci (Art-Net)…'), 0.02)
-    for m in cuestage_masters(ips):
+    say(_('Ricerca di Cuevivo e delle console luci (Art-Net)…'), 0.02)
+    for m in cuevivo_masters(ips):
         host = "127.0.0.1" if m["host"] in ips else m["host"]
-        add(host, 53000, "cuestage", f"CueStage «{m['name']}»", _("risponde alla ricerca delle istanze"), True)
+        add(host, 53000, "cuevivo", f"Cuevivo «{m['name']}»", _("risponde alla ricerca delle istanze"), True)
     if stop():
         return results
     for n in artnet_nodes(ips):
@@ -400,8 +401,8 @@ def scan(progress=None, cancel=None, tcp_ports=(53000, 8080), sweep=True):
                 add(h, 53000, "qlab", _("QLab (probabile)"), _("porta TCP 53000 aperta"), False)
         elif p == 8080:
             srv = http_server_name(h) or ""
-            if "cuestage" in srv.lower():
-                add(h, 53000, "cuestage", "CueStage", _("interfaccia web di CueStage sulla porta 8080"), True)
+            if "cuevivo" in srv.lower() or "cuestage" in srv.lower():      # anche le versioni col nome vecchio
+                add(h, 53000, "cuevivo", "Cuevivo", _("interfaccia web di Cuevivo sulla porta 8080"), True)
 
     say(_('Controllo le porte OSC (UDP) dei computer accesi…'), 0.8)
     alive = sorted(alive, key=lambda x: (x != "127.0.0.1", tuple(int(n) for n in x.split("."))))
@@ -412,7 +413,7 @@ def scan(progress=None, cancel=None, tcp_ports=(53000, 8080), sweep=True):
             for p in ports:
                 guess = OSC_UDP_PORTS.get(p, "generico")
                 where = _("questo computer") if h == "127.0.0.1" else h
-                name = {53000: _("CueStage o QLab"), 58000: _("SCS (porta di esempio)"), 8000: _("OSC (porta 8000)")}.get(
+                name = {53000: _("Cuevivo o QLab"), 58000: _("SCS (porta di esempio)"), 8000: _("OSC (porta 8000)")}.get(
                     p, _("OSC (porta {0})").format(p))
                 add(h, p, guess, name, _("porta UDP {0} probabilmente aperta su {1}").format(p, where), False)
     say(_('Ricerca finita'), 1.0)

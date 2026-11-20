@@ -1,4 +1,4 @@
-"""Differenze fra sistemi operativi (Linux, Windows, macOS) raccolte in un solo posto (come in CueStage)."""
+"""Differenze fra sistemi operativi (Linux, Windows, macOS) raccolte in un solo posto (come in Cuevivo)."""
 import os
 import sys
 

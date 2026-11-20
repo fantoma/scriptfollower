@@ -1,25 +1,28 @@
-"""Collegamento con CueStage: Script Follower si presenta e segue il cambio di master.
+"""Collegamento con Cuevivo: Script Follower si presenta e segue il cambio di master.
 
-CueStage può lavorare con istanze secondarie (slave / ridondanza); se il master cade, una secondaria viene
+Cuevivo può lavorare con istanze secondarie (slave / ridondanza); se il master cade, una secondaria viene
 promossa. Script Follower però manda i comandi OSC a un indirizzo IP fisso, quello del vecchio master. Con
 questo protocollo (tutto OSC su UDP) il nuovo master può dire a Script Follower dove spostarsi.
 
-Script Follower → CueStage, sulla porta OSC di ogni profilo CueStage, all'avvio e poi ogni HELLO_EVERY secondi:
+Script Follower → Cuevivo, sulla porta OSC di ogni profilo Cuevivo, all'avvio e poi ogni HELLO_EVERY secondi:
     /cuestage/client/hello  "scriptfollower" <versione> <nome del computer> <porta di ritorno:int>
                             <id del client> <id del profilo>
     /cuestage/client/bye    <id del client>                       (alla chiusura)
 
-CueStage (master) → Script Follower, all'indirizzo da cui arriva l'hello e alla porta di ritorno:
+Cuevivo (master) → Script Follower, all'indirizzo da cui arriva l'hello e alla porta di ritorno:
     /cuestage/client/ack    <nome dell'istanza> <porta OSC:int> <istanze del gruppo: "ip1,ip2,…">
         Il master ricorda i client (e li passa alle secondarie con lo stato): servono a un nuovo master.
 
 Il nuovo master → Script Follower, quando viene promosso (a tutti i client che il vecchio master conosceva):
     /cuestage/master        <nuovo ip> <porta OSC:int> <nome dell'istanza> [<vecchio ip>]
-        Script Follower sposta lì i profili CueStage che puntavano al vecchio master (o a un'istanza del gruppo)
+        Script Follower sposta lì i profili Cuevivo che puntavano al vecchio master (o a un'istanza del gruppo)
         e risponde:
     /cuestage/client/moved  <id del client> <id dei profili spostati, separati da virgole>
 
-Il protocollo è descritto anche in OSC_CLIENTS.md, nel repository di CueStage.
+Gli indirizzi usano lo spazio dei nomi storico «/cuestage» (il programma si chiamava CueStage): lo capiscono sia
+Cuevivo sia le versioni di CueStage che hanno questa funzione. Cuevivo accetta anche «/cuevivo/…» e risponde
+nello spazio dei nomi usato dal programma; in arrivo Script Follower accetta tutti e due.
+Il protocollo è descritto anche in OSC_CLIENTS.md, nel repository di Cuevivo.
 
 Sicurezza: un messaggio «master» viene applicato da solo solo se arriva da un'istanza del gruppo conosciuta
 (dalle risposte all'hello) o dall'indirizzo di un profilo; altrimenti si chiede conferma all'operatore.
@@ -41,7 +44,7 @@ try:
 except Exception:  # pragma: no cover
     Dispatcher = ThreadingOSCUDPServer = SimpleUDPClient = None
 
-DEFAULT_PORT = 53100              # porta di ritorno (UDP) su cui Script Follower ascolta CueStage
+DEFAULT_PORT = 53100              # porta di ritorno (UDP) su cui Script Follower ascolta Cuevivo
 HELLO_EVERY = 5.0                 # secondi
 LINK_DEFAULTS = {"on": True, "port": DEFAULT_PORT}
 
@@ -50,6 +53,16 @@ A_BYE = "/cuestage/client/bye"
 A_MOVED = "/cuestage/client/moved"
 A_ACK = "/cuestage/client/ack"
 A_MASTER = "/cuestage/master"
+NAMESPACES = ("/cuestage", "/cuevivo")
+
+
+def _canonical(address):
+    """«/cuevivo/master» → «/cuestage/master»: i due spazi dei nomi sono lo stesso protocollo."""
+    a = address.rstrip("/").lower()
+    for ns in NAMESPACES[1:]:
+        if a.startswith(ns + "/"):
+            return NAMESPACES[0] + a[len(ns):]
+    return a
 
 
 def link_settings(d):
@@ -64,13 +77,13 @@ def link_settings(d):
 
 
 def plan_move(targets, new_ip, new_port, old_ip, known):
-    """Profili CueStage da spostare: [(indice, id)].
+    """Profili Cuevivo da spostare: [(indice, id)].
 
     known = {id profilo: insieme degli IP del suo gruppo di istanze (dalle risposte all'hello)}.
-    Si sposta un profilo CueStage se punta al vecchio master indicato, oppure a un'istanza del suo gruppo che
+    Si sposta un profilo Cuevivo se punta al vecchio master indicato, oppure a un'istanza del suo gruppo che
     contiene il nuovo master. Se il messaggio non dice nulla del vecchio master e non ci sono gruppi noti, si
-    spostano tutti i profili CueStage (succede con un solo master)."""
-    cs = [(i, t) for i, t in enumerate(targets) if t.get("plugin") == "cuestage" and (t.get("host") or "").strip()]
+    spostano tutti i profili Cuevivo (succede con un solo master)."""
+    cs = [(i, t) for i, t in enumerate(targets) if t.get("plugin") == "cuevivo" and (t.get("host") or "").strip()]
     there = lambda t: t["host"].strip() == new_ip and int(t.get("port") or 0) == int(new_port)  # noqa: E731
     out = []
     for i, t in cs:
@@ -84,8 +97,8 @@ def plan_move(targets, new_ip, new_port, old_ip, known):
     return out
 
 
-class CueStageLink(QObject):
-    """Annuncia Script Follower ai profili CueStage e ascolta il nuovo master."""
+class CuevivoLink(QObject):
+    """Annuncia Script Follower ai profili Cuevivo e ascolta il nuovo master."""
     master = Signal(str, int, str, str, str, bool)   # nuovo ip, porta, nome, vecchio ip, mittente, istanza nota
     status = Signal(str)
     _msg = Signal(str, str, list)                    # (dal thread del server) indirizzo OSC, mittente, argomenti
@@ -98,7 +111,7 @@ class CueStageLink(QObject):
         self.cfg = link_settings(None)
         self.port = None                 # porta su cui si ascolta davvero
         self.known = {}                  # id profilo -> set(ip delle istanze del gruppo)
-        self.names = {}                  # id profilo -> nome dell'istanza CueStage che ha risposto
+        self.names = {}                  # id profilo -> nome dell'istanza Cuevivo che ha risposto
         self.last_ack = {}               # id profilo -> istante dell'ultima risposta
         self.server = None
         self._clients = {}
@@ -139,9 +152,9 @@ class CueStageLink(QObject):
             except OSError as e:
                 err = e
         if self.server is None:
-            self.status.emit(_("CueStage: porta di ritorno {0} non disponibile ({1})").format(self.cfg["port"], err))
+            self.status.emit(_("Cuevivo: porta di ritorno {0} non disponibile ({1})").format(self.cfg["port"], err))
             return False
-        threading.Thread(target=self.server.serve_forever, daemon=True, name="cuestage-link").start()
+        threading.Thread(target=self.server.serve_forever, daemon=True, name="cuevivo-link").start()
         self.timer.start(int(HELLO_EVERY * 1000))
         QTimer.singleShot(200, self.hello)
         return True
@@ -162,7 +175,7 @@ class CueStageLink(QObject):
 
     # ------------------------------------------------------------ invio
     def _cs_targets(self):
-        return [t for t in self.targets if t.get("plugin") == "cuestage" and (t.get("host") or "").strip()]
+        return [t for t in self.targets if t.get("plugin") == "cuevivo" and (t.get("host") or "").strip()]
 
     def _send(self, host, port, address, args):
         if SimpleUDPClient is None:
@@ -184,7 +197,7 @@ class CueStageLink(QObject):
                        ["scriptfollower", __version__, self.name, int(self.port), self.client_id, t["id"]])
 
     def connected(self, pid):
-        """La CueStage del profilo ha risposto da poco (sa che ci siamo)."""
+        """La Cuevivo del profilo ha risposto da poco (sa che ci siamo)."""
         return time.monotonic() - self.last_ack.get(pid, -1e9) < 3 * HELLO_EVERY
 
     # ------------------------------------------------------------ ricezione
@@ -192,7 +205,7 @@ class CueStageLink(QObject):
         self._msg.emit(address, client_address[0], list(args))      # al thread dell'interfaccia
 
     def _handle(self, address, sender, args):
-        a = address.rstrip("/").lower()
+        a = _canonical(address)
         if a == A_ACK:
             self._ack(sender, args)
         elif a == A_MASTER:

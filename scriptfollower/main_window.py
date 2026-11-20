@@ -1,4 +1,4 @@
-"""Finestra principale di Script Follower (stessa veste grafica di CueStage)."""
+"""Finestra principale di Script Follower (stessa veste grafica di Cuevivo)."""
 import json
 import os
 import random
@@ -67,16 +67,16 @@ class MainWindow(QMainWindow):
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(30000)
         self._autosave_timer.timeout.connect(self._autosave)
-        # CueStage: Script Follower si presenta e segue il cambio di master (cuestage_link.py)
-        from .cuestage_link import CueStageLink, link_settings
+        # Cuevivo: Script Follower si presenta e segue il cambio di master (cuevivo_link.py)
+        from .cuevivo_link import CuevivoLink, link_settings
         cid = self.qs.value("client_id") or ""
         if not cid:
             import uuid
             cid = uuid.uuid4().hex[:12]
             self.qs.setValue("client_id", cid)
-        self.link_cfg = link_settings(self._qs_json("cuestage_link"))
-        self.link = CueStageLink(cid, self)
-        self.link.master.connect(self._cuestage_master)
+        self.link_cfg = link_settings(self._qs_json("cuevivo_link") or self._qs_json("cuestage_link"))
+        self.link = CuevivoLink(cid, self)
+        self.link.master.connect(self._cuevivo_master)
         self.link.status.connect(self.status)
         QTimer.singleShot(0, lambda: self.link.configure(self.link_cfg, self.project.targets))
         self.test_speed = 1.0
@@ -1592,26 +1592,26 @@ class MainWindow(QMainWindow):
             self.stop_listen()
             self.start_listen()
 
-    # =========================================================== CueStage: cambio di master
+    # =========================================================== Cuevivo: cambio di master
     def set_link(self, cfg):
-        from .cuestage_link import link_settings
+        from .cuevivo_link import link_settings
         self.link_cfg = link_settings(cfg)
-        self._qs_save("cuestage_link", self.link_cfg)
+        self._qs_save("cuevivo_link", self.link_cfg)
         self.link.configure(self.link_cfg, self.project.targets)
 
-    def _cuestage_master(self, new_ip, port, name, old_ip, sender, trusted):
-        """Una CueStage dice di essere il nuovo master: i profili CueStage del vecchio master passano lì."""
-        from .cuestage_link import plan_move
+    def _cuevivo_master(self, new_ip, port, name, old_ip, sender, trusted):
+        """Una Cuevivo dice di essere il nuovo master: i profili Cuevivo del vecchio master passano lì."""
+        from .cuevivo_link import plan_move
         moves = plan_move(self.project.targets, new_ip, port, old_ip, self.link.known)
         if not moves:
             if not trusted:
-                self.status(_("Ignorato un messaggio «nuovo master» da {0}: nessun profilo CueStage lo riguarda").format(sender))
+                self.status(_("Ignorato un messaggio «nuovo master» da {0}: nessun profilo Cuevivo lo riguarda").format(sender))
             return
         who = f"«{name}» ({new_ip}:{port})" if name else f"{new_ip}:{port}"
         names = ", ".join(f"«{self.project.targets[i]['name']}»" for i, _pid in moves)
         if not trusted:
             r = QMessageBox.question(self, APP_NAME, _(
-                "CueStage {0} dice di essere il nuovo master, ma il messaggio arriva da un indirizzo che non fa "
+                "Cuevivo {0} dice di essere il nuovo master, ma il messaggio arriva da un indirizzo che non fa "
                 "parte del gruppo di istanze conosciuto ({1}).\n\nSpostare lì i profili {2}?").format(who, sender, names),
                 QMessageBox.Yes | QMessageBox.No)
             if r != QMessageBox.Yes:
@@ -1626,7 +1626,7 @@ class MainWindow(QMainWindow):
         self.link.set_targets(targets)
         self.link.moved(new_ip, port, [pid for _i, pid in moves])
         self.refresh_points()
-        self.status(_("⇄ Nuovo master CueStage {0}: profili {1} spostati").format(who, names))
+        self.status(_("⇄ Nuovo master Cuevivo {0}: profili {1} spostati").format(who, names))
 
     # =========================================================== simulazione
     def simulate_dialog(self):
@@ -1693,7 +1693,7 @@ class MainWindow(QMainWindow):
         d.exec()
 
     def about(self):
-        QMessageBox.about(self, APP_NAME, _('<b>{0}</b> {1}<br>Segue il parlato e fa scorrere il copione, con pulsanti OSC per CueStage, QLab, SCS, ChamSys e altri.<br><br>Riconoscimento vocale offline: Vosk (Apache 2.0), Whisper/CTranslate2 (MIT). PDF: PyMuPDF (AGPL). Audio: libsndfile (LGPL).<br>Licenza GPL v3.').format(APP_NAME, __version__))
+        QMessageBox.about(self, APP_NAME, _('<b>{0}</b> {1}<br>Segue il parlato e fa scorrere il copione, con pulsanti OSC per Cuevivo, QLab, SCS, ChamSys e altri.<br><br>Riconoscimento vocale offline: Vosk (Apache 2.0), Whisper/CTranslate2 (MIT). PDF: PyMuPDF (AGPL). Audio: libsndfile (LGPL).<br>Licenza GPL v3.').format(APP_NAME, __version__))
 
 
 class _TopBar(QWidget):
@@ -1806,7 +1806,7 @@ In azzurro le parole <b>escluse dal riconoscimento</b>: didascalie tra parentesi
 luci), righe tipo «MUSICA:», l'indice. Si cambiano con il menu sulla parola.</p>
 <p><b>Clic su una parola</b> (o trascina su più parole): <b>＋ Pulsante OSC</b> o <b>＋ Annotazione</b> su
 quella parola. Ogni pulsante può inviare <b>più comandi OSC</b>, verso i <b>profili OSC</b>
-(Impostazioni › Profili OSC, anche con la ricerca in rete), e avere note e immagini. I plugin (CueStage, QLab, SCS, ChamSys MagicQ, Generico) offrono i comandi già
+(Impostazioni › Profili OSC, anche con la ricerca in rete), e avere note e immagini. I plugin (Cuevivo, QLab, SCS, ChamSys MagicQ, Generico) offrono i comandi già
 pronti. In preparazione un clic sul pulsante lo modifica; tasto destro = modifica, prova, elimina.</p>
 <p><b>File › Salva nel PDF</b> (Ctrl+S) mette dentro il copione pulsanti, note, immagini, parole
 incluse/escluse, pronunce, profili OSC, tempi e le impostazioni dello show (gate, inseguimento, riquadro): basta

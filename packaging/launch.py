@@ -146,7 +146,7 @@ def self_test(report=None):
     def plugins():
         from scriptfollower.osc import plugins as pl
         p = pl(reload=True)
-        need = {"cuestage", "qlab", "scs", "chamsys_magicq", "generico"}
+        need = {"cuevivo", "qlab", "scs", "chamsys_magicq", "generico"}
         if not need <= set(p):
             raise RuntimeError(f"mancano {need - set(p)}")
         return ", ".join(sorted(p))

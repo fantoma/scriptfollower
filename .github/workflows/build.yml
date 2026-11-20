@@ -1,4 +1,4 @@
-# Costruisce e prova Script Follower su Linux, Windows e macOS (come CueStage).
+# Costruisce e prova Script Follower su Linux, Windows e macOS (come Cuevivo).
 #
 #  push sul ramo main / pull request  → solo test su Linux (veloce)
 #  tag «v1.2.3»                       → test sui 3 sistemi + pacchetti portable allegati alla Release «v1.2.3»

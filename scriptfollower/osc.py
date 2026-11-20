@@ -1,6 +1,6 @@
 """OSC in uscita: i due profili di destinazione e i «plugin» con i comandi già pronti.
 
-Plugin (stesso formato dei profili OSC di CueStage): file JSON in scriptfollower/osc_profiles/ o nella cartella
+Plugin (stesso formato dei profili OSC di Cuevivo): file JSON in scriptfollower/osc_profiles/ o nella cartella
 dei dati (osc_profiles/), con
   id, name, port (porta predefinita), notes,
   commands: [{id, label, address, args, params: [{id, label, type int|float|enum|text, …}], help}]
@@ -62,7 +62,7 @@ def plugin_order():
 
 
 def default_targets():
-    return [{"id": "p1", "name": "CueStage", "host": "127.0.0.1", "port": 53000, "note": "", "plugin": "cuestage"},
+    return [{"id": "p1", "name": "Cuevivo", "host": "127.0.0.1", "port": 53000, "note": "", "plugin": "cuevivo"},
             {"id": "p2", "name": "Luci", "host": "192.168.1.50", "port": 8000, "note": "", "plugin": "chamsys_magicq"}]
 
 
@@ -76,6 +76,10 @@ def new_target(targets, plugin="generico", host="", port=None, name=None):
     return {"id": f"p{k}", "name": name or (p.get("name", "").split(" (")[0] if plugin != "generico"
                                             else _("Profilo {0}").format(k)),
             "host": host, "port": int(port or p.get("port") or 8000), "note": "", "plugin": plugin}
+
+
+# plugin con un nome vecchio: CueStage è diventato Cuevivo (progetti e PDF salvati prima)
+PLUGIN_ALIASES = {"cuestage": "cuevivo"}
 
 
 def clean_targets(targets):
@@ -100,6 +104,8 @@ def clean_targets(targets):
         t["name"] = str(t["name"] or f"Profilo {i + 1}")
         t["host"] = str(t["host"] or "").strip()
         t["note"] = str(t["note"] or "")
+        if t["plugin"] not in plugins() and PLUGIN_ALIASES.get(t["plugin"]) in plugins():
+            t["plugin"] = PLUGIN_ALIASES[t["plugin"]]
         if t["plugin"] not in plugins():
             t["plugin"] = "generico"
         out.append(t)
@@ -221,7 +227,7 @@ def render(command, targets):
 
 
 def describe(command, targets):
-    """Testo breve: «CueStage › Avvia una cue · Cue 12»."""
+    """Testo breve: «Cuevivo › Avvia una cue · Cue 12»."""
     targets = clean_targets(targets)
     try:
         t = find_target(command, targets)

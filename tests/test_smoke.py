@@ -515,7 +515,7 @@ def immagini_dei_pulsanti():
 def osc_argomenti_e_plugin():
     assert parse_osc_args('1 2.5 ciao "due parole" "12" true') == [1, 2.5, "ciao", "due parole", "12", True]
     ps = plugins(reload=True)
-    for pid in ("cuestage", "qlab", "scs", "chamsys_magicq", "generico"):
+    for pid in ("cuevivo", "qlab", "scs", "chamsys_magicq", "generico"):
         assert pid in ps, pid
     targets = [{"name": "A", "host": "127.0.0.1", "port": 53000, "plugin": "qlab"},
                {"name": "B", "host": "10.0.0.2", "port": 58000, "plugin": "scs"}]
@@ -728,7 +728,7 @@ def finestra_e_invio_osc():
         w.open_pdf(PDF)
         run(0.2)
         assert w.doc is not None and w.aligner is not None
-        w.project.targets[0].update(host="127.0.0.1", port=port, plugin="cuestage")
+        w.project.targets[0].update(host="127.0.0.1", port=port, plugin="cuevivo")
         d = w.doc
         k1 = next(x.i for x in d.words if x.text == "questo!")
         k2 = next(x.i for x in d.words if x.text == "corrente?")
@@ -1273,19 +1273,19 @@ def pulsante_nuovo_e_riquadro_fisso():
 
 
 @test
-def cuestage_cambio_di_master():
-    """Script Follower si presenta a CueStage (simulata) e segue il nuovo master; i messaggi estranei no."""
+def cuevivo_cambio_di_master():
+    """Script Follower si presenta a Cuevivo (simulata) e segue il nuovo master; i messaggi estranei no."""
     from pythonosc.dispatcher import Dispatcher
     from pythonosc.osc_server import ThreadingOSCUDPServer
     from pythonosc.udp_client import SimpleUDPClient
-    from scriptfollower.cuestage_link import plan_move
+    from scriptfollower.cuevivo_link import plan_move
     from scriptfollower.main_window import MainWindow
     from scriptfollower.osc import send_commands
     asked = []
     old_q = QMessageBox.question
     servers = []
 
-    def fake_cuestage(name, members=""):
+    def fake_cuevivo(name, members=""):
         got = []
         disp = Dispatcher()
 
@@ -1300,12 +1300,12 @@ def cuestage_cambio_di_master():
         servers.append(srv)
         return srv.server_address[1], got
 
-    pa, got_a = fake_cuestage("Regia-A")
-    pb, got_b = fake_cuestage("Regia-B")
+    pa, got_a = fake_cuevivo("Regia-A")
+    pb, got_b = fake_cuevivo("Regia-B")
     w = MainWindow()
     try:
         t = w.project.targets
-        t[0].update(host="127.0.0.1", port=pa, plugin="cuestage", name="Audio")
+        t[0].update(host="127.0.0.1", port=pa, plugin="cuevivo", name="Audio")
         t[1].update(host="192.168.1.77", port=8000, plugin="chamsys_magicq", name="Luci")
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.bind(("127.0.0.1", 0))
@@ -1333,11 +1333,11 @@ def cuestage_cambio_di_master():
         assert not asked and w.project.targets[0]["port"] == pb
         # da uno sconosciuto che dice di sostituire il nostro master: si chiede (qui «No»)
         w.link.known = {}
-        w._cuestage_master("10.9.9.9", 53000, "Intruso", "127.0.0.1", "10.9.9.9", False)
+        w._cuevivo_master("10.9.9.9", 53000, "Intruso", "127.0.0.1", "10.9.9.9", False)
         assert asked and w.project.targets[0]["port"] == pb
         # regole di scelta dei profili
-        tg = [{"id": "a", "plugin": "cuestage", "host": "10.0.0.1", "port": 53000},
-              {"id": "b", "plugin": "cuestage", "host": "10.0.0.9", "port": 53000},
+        tg = [{"id": "a", "plugin": "cuevivo", "host": "10.0.0.1", "port": 53000},
+              {"id": "b", "plugin": "cuevivo", "host": "10.0.0.9", "port": 53000},
               {"id": "c", "plugin": "qlab", "host": "10.0.0.1", "port": 53000}]
         assert plan_move(tg, "10.0.0.2", 53000, "10.0.0.1", {}) == [(0, "a")]
         assert plan_move(tg, "10.0.0.2", 53000, "", {"b": {"10.0.0.9", "10.0.0.2"}}) == [(1, "b")]
@@ -1351,6 +1351,32 @@ def cuestage_cambio_di_master():
             srv.server_close()
         w.project.dirty = False
         w.close()
+
+
+@test
+def nome_cuevivo_ex_cuestage():
+    """CueStage è diventato Cuevivo: i profili vecchi passano al plugin nuovo, i messaggi /cuevivo/… valgono come
+    quelli /cuestage/…, la ricerca in rete riconosce tutti e due i nomi."""
+    import json
+    from scriptfollower.osc import clean_targets, plugins
+    from scriptfollower.cuevivo_link import CuevivoLink, _canonical
+    assert "cuevivo" in plugins() and "cuestage" not in plugins() and plugins()["cuevivo"]["name"] == "Cuevivo"
+    t = clean_targets([{"id": "p1", "name": "Audio", "host": "10.0.0.5", "port": 53000, "plugin": "cuestage"}])
+    assert t[0]["plugin"] == "cuevivo" and t[0]["host"] == "10.0.0.5"
+    # un JSON di un progetto vecchio (plugin «cuestage») importato
+    old = os.path.join(TMP, "vecchio-cuestage.json")
+    json.dump({"app": "scriptfollower", "version": 2, "targets": [{"id": "p1", "name": "Audio", "host": "10.0.0.5",
+              "port": 53000, "plugin": "cuestage"}], "points": []}, open(old, "w", encoding="utf-8"))
+    assert read_json(old)[0].targets[0]["plugin"] == "cuevivo"
+    assert _canonical("/cuevivo/master") == "/cuestage/master" and _canonical("/CUESTAGE/client/ack/") == "/cuestage/client/ack"
+    lk = CuevivoLink("x")
+    lk.set_targets([{"id": "p1", "name": "Audio", "host": "10.0.0.5", "port": 53000, "plugin": "cuevivo"}])
+    seen = []
+    lk.master.connect(lambda *a: seen.append(a))
+    lk._handle("/cuevivo/client/ack", "10.0.0.5", ["Regia", 53000, "10.0.0.6"])
+    assert lk.known["p1"] == {"10.0.0.5", "10.0.0.6"} and lk.names["p1"] == "Regia"
+    lk._handle("/cuevivo/master", "10.0.0.6", ["10.0.0.6", 53000, "Regia-B", "10.0.0.5"])
+    assert seen and seen[0][0] == "10.0.0.6" and seen[0][5] is True
 
 
 print(f"\n{len(FAILED)} prove fallite" + (f": {', '.join(FAILED)}" if FAILED else ""))
