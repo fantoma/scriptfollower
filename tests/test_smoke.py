@@ -1512,8 +1512,12 @@ def cue_attive_di_cuevivo():
         assert not w.active_dock.isFloating()
         w.toggle_active_floating()
         assert w.active_dock.isFloating() and w.qs.value("active_floating") == "true"
+        from PySide6.QtCore import Qt as _Qt
+        fl = w.active_dock.windowFlags()                 # finestra con la barra del sistema (si sposta anche
+        assert not fl & _Qt.FramelessWindowHint and fl & _Qt.WindowTitleHint   # sotto Wayland)
+        assert w.active_dock.titleBarWidget() is not None and w.active_dock.isWindow()
         w.toggle_active_floating()
-        assert not w.active_dock.isFloating()
+        assert not w.active_dock.isFloating() and w.active_dock.titleBarWidget() is None
         # gli stati non arrivano più: «non collegato» dopo 5 s, e al prossimo hello ci si riabbona
         ep = w.link.endpoints[("127.0.0.1", A.port)]
         ep.t -= 6.0

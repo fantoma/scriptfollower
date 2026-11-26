@@ -357,6 +357,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, self.active_dock)
         self.active_dock.hide()
         self.active_dock.visibilityChanged.connect(lambda _v: QTimer.singleShot(0, self._active_visibility))
+        self.active_dock.topLevelChanged.connect(self._active_float_changed)
         self._listen_look()
 
     def _build_menus(self):
@@ -1624,6 +1625,24 @@ class MainWindow(QMainWindow):
             self.resizeDocks([self.active_dock], [360], Qt.Horizontal)
         if self.active_dock.isFloating() and on:
             self.active_dock.raise_()
+
+    def _active_float_changed(self, floating):
+        """Staccato: una finestra normale con la barra del titolo del sistema. La finestra senza bordi che Qt
+        usa per i pannelli staccati non si può spostare sotto Wayland (Ubuntu 22.04+, Fedora…), perché lì un
+        programma non può posizionare da sé le sue finestre: con la barra del sistema la sposta il desktop.
+        Riagganciato: torna la barra del titolo del pannello."""
+        d = self.active_dock
+        if floating:
+            if d.titleBarWidget() is None:
+                d.setTitleBarWidget(QWidget())       # niente doppia barra: basta quella del sistema
+            geo = d.geometry()
+            d.setWindowFlags(Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint |
+                             Qt.WindowMinMaxButtonsHint)
+            d.setWindowTitle(_("Cue attive (Cuevivo)"))
+            d.setGeometry(geo)
+            d.show()
+        elif d.titleBarWidget() is not None:
+            d.setTitleBarWidget(None)
 
     def toggle_active_floating(self):
         d = self.active_dock
