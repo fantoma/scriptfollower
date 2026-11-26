@@ -853,28 +853,67 @@ class MainWindow(QMainWindow):
         self.status(_('{0}: {1} pagine, {2} parole da seguire, {3} pulsanti, {4} note').format(os.path.basename(doc.path), doc.n_pages, len(doc.tokens), n_b, len(p.points) - n_b))
 
     def closeEvent(self, e):
+        if self._closing:                        # già in chiusura (es. Ctrl+Q due volte)
+            e.accept()
+            return
         if not self._confirm_discard():
             e.ignore()
             return
         self.qs.setValue("geometry", self.saveGeometry())
         self._save_active()
         self._closing = True
-        if self.active_dock.isFloating():
-            self.active_dock.hide()              # la finestra staccata non deve restare aperta da sola
         if self._timing_unsaved:
             self._autosave()
-        self.stop_listen()
+        self.qs.sync()
+        # prima spariscono le finestre (anche il pannello staccato), poi si libera il resto: se qualcosa si
+        # blocca (scheda audio, rete) l'operatore non vede una finestra appesa
+        from PySide6.QtWidgets import QApplication
+        if not os.environ.get("SCRIPTFOLLOWER_TESTING"):
+            QApplication.instance().setQuitOnLastWindowClosed(False)   # si esce quando la pulizia è finita
+        self.active_dock.hide()
         if self.audiotest is not None:
             self.audiotest.close()
-        self.link.stop()
-        self.link.flush(0.5)                     # i «bye» e le disdette partono prima di uscire
-        self.audio.close()
         if self.sim is not None:
             self.sim.close()
         super().closeEvent(e)
-        from PySide6.QtWidgets import QApplication
-        if QApplication.instance() is not None and not getattr(self, "_keep_app", False):
-            QTimer.singleShot(0, QApplication.instance().quit)     # il programma esce davvero
+        self.hide()
+        QApplication.processEvents()             # le finestre spariscono davvero adesso (Wayland compreso)
+        # nel thread dell'interfaccia solo le cose rapide (stati, timer, messaggi in coda)
+        self.suspended = False
+        self.audio.consumer = None
+        self.listening = False
+        self.link.stop()                         # non blocca: bye e disdette in coda, server chiuso a parte
+        if os.environ.get("SCRIPTFOLLOWER_TESTING"):   # test: il resto subito, nello stesso thread
+            self._shutdown()
+            return
+        import threading
+        done = threading.Event()
+
+        def work():
+            try:
+                self._shutdown()
+            finally:
+                done.set()
+        threading.Thread(target=work, daemon=True, name="chiusura").start()
+
+        def finish(tries=[0]):
+            tries[0] += 1
+            if done.is_set() or tries[0] > 40:            # al massimo ~4 s, poi si esce lo stesso
+                if not done.is_set():
+                    _report_stuck()
+                QApplication.instance().quit()
+            else:
+                QTimer.singleShot(100, finish)
+        QTimer.singleShot(0, finish)
+
+    def _shutdown(self):
+        """Libera riconoscitore, rete e scheda audio: può metterci un po' (driver audio, thread del
+        riconoscitore), quindi all'uscita gira in un altro thread. Niente interfaccia qui dentro."""
+        for fn in (self.rec.stop, lambda: self.link.flush(0.5), self.audio.close):
+            try:
+                fn()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _mark_dirty(self):
         self.project.dirty = True
@@ -1813,6 +1852,17 @@ class MainWindow(QMainWindow):
 
     def about(self):
         QMessageBox.about(self, APP_NAME, _('<b>{0}</b> {1}<br>Segue il parlato e fa scorrere il copione, con pulsanti OSC per Cuevivo, QLab, SCS, ChamSys e altri.<br><br>Riconoscimento vocale offline: Vosk (Apache 2.0), Whisper/CTranslate2 (MIT). PDF: PyMuPDF (AGPL). Audio: libsndfile (LGPL).<br>Licenza GPL v3.').format(APP_NAME, __version__))
+
+
+def _report_stuck():
+    """La chiusura non è finita in tempo: dove si è fermata, nel log (per capire che cosa si blocca)."""
+    import faulthandler
+    import sys
+    try:
+        print("Script Follower: chiusura non terminata in 4 s, stato dei thread:", file=sys.stderr)
+        faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class _TopBar(QWidget):

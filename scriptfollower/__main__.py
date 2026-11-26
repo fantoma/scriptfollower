@@ -72,7 +72,15 @@ def main():
     for p in app.pending:
         w.open_any(p)
     w.show()
-    sys.exit(app.exec())
+    code = app.exec()
+    # uscita sicura: le preferenze sono già salvate; un thread rimasto appeso (driver audio, rete) non deve
+    # tenere vivo il processo con le finestre a metà
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:  # noqa: BLE001
+        pass
+    os._exit(code)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import traceback
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ["SCRIPTFOLLOWER_TESTING"] = "1"          # chiusura delle finestre senza thread né uscita
 # impostazioni e dati dei test in cartelle temporanee: quelli veri dell'utente non si toccano
 _HOME = tempfile.mkdtemp(prefix="scriptfollower-home-")
 os.environ["SCRIPTFOLLOWER_DATA"] = os.path.join(_HOME, "dati")
