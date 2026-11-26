@@ -1583,5 +1583,43 @@ def cue_attive_di_cuevivo():
         w.close()
 
 
+@test
+def scheda_audio_chiusa_senza_attese():
+    """Chiudendo, gli stream si interrompono con abort() (subito) e non con stop(), che con PipeWire / ALSA
+    può non tornare più; il callback smette di lavorare appena inizia la chiusura."""
+    calls = []
+
+    class FakeStream:
+        def stop(self, ignore_errors=True):
+            calls.append("stop")
+
+        def abort(self, ignore_errors=True):
+            calls.append("abort")
+
+        def close(self, ignore_errors=True):
+            calls.append("close")
+
+    class FakeSD:
+        class CallbackAbort(Exception):
+            pass
+    a = ai.AudioInput()
+    a.stream = FakeStream()
+    a.monitor.stream = FakeStream()
+    a.close()
+    assert calls == ["abort", "close", "abort", "close"], calls
+    old = ai.sd
+    ai.sd = FakeSD
+    try:
+        for cb, buf in ((a._cb, np.zeros((64, 1), np.float32)), (a.monitor._cb, np.zeros((64, 2), np.float32))):
+            try:
+                cb(buf, 64, None, None)
+                raise AssertionError("il callback lavora ancora dopo la chiusura")
+            except FakeSD.CallbackAbort:
+                pass
+    finally:
+        ai.sd = old
+    ai.halt_stream(None)                                 # niente stream: niente errori
+
+
 print(f"\n{len(FAILED)} prove fallite" + (f": {', '.join(FAILED)}" if FAILED else ""))
 sys.exit(len(FAILED))

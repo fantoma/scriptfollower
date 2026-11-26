@@ -37,6 +37,27 @@ AUDIO_DEFAULTS = {
 }
 
 
+def halt_stream(s):
+    """Ferma e chiude uno stream subito, senza aspettare che i buffer si svuotino: con PipeWire / ALSA lo
+    stop() «gentile» di PortAudio a volte non torna più (programma appeso alla chiusura o cambiando scheda).
+    Per un ingresso e per il preascolto quello che resta nei buffer non serve."""
+    if s is None:
+        return
+    for name in ("abort", "close"):
+        fn = getattr(s, name, None)
+        if fn is None:
+            continue
+        try:
+            fn(ignore_errors=True)
+        except TypeError:                  # versioni senza ignore_errors
+            try:
+                fn()
+            except Exception:  # noqa: BLE001
+                pass
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def audio_settings(d):
     s = dict(AUDIO_DEFAULTS)
     s.update({k: v for k, v in (d or {}).items() if k in AUDIO_DEFAULTS})
@@ -221,6 +242,7 @@ class Monitor:
                     self.buf = np.zeros(0, np.float32)
                     self.primed = False
                 self.stream = st
+                self._halting = False
                 st.start()
                 return True
             except Exception as e:  # noqa: BLE001
@@ -230,14 +252,10 @@ class Monitor:
         return False
 
     def close(self):
+        self._halting = True               # il callback smette subito di lavorare
         s, self.stream = self.stream, None
         self.key = None
-        if s is not None:
-            try:
-                s.stop()
-                s.close()
-            except Exception:
-                pass
+        halt_stream(s)
 
     def push(self, x):
         """Dal thread dell'ingresso: campioni mono alla frequenza dell'ingresso."""
@@ -270,6 +288,8 @@ class Monitor:
 
     def _cb(self, outdata, frames, t, st):
         outdata.fill(0)
+        if getattr(self, "_halting", False):
+            raise sd.CallbackAbort
         y = np.clip(self.read(frames), -1.0, 1.0)
         for c in self.cols:
             if c < outdata.shape[1]:
@@ -387,6 +407,7 @@ class AudioInput:
                         self.sr = int(st.samplerate)
                         self._rs = Resampler(self.sr)
                         self.stream = st
+                        self._halting = False
                         st.start()
                         return True
                     except Exception as e:  # noqa: BLE001
@@ -399,13 +420,9 @@ class AudioInput:
             return False
 
     def close(self):
+        self._halting = True               # il callback smette subito di lavorare
         s, self.stream = self.stream, None
-        if s is not None:
-            try:
-                s.stop()
-                s.close()
-            except Exception:
-                pass
+        halt_stream(s)
         if not self.file_mode:
             self.monitor.close()
         self.meter = self.meter_post = 0.0
@@ -415,6 +432,8 @@ class AudioInput:
 
     # ------------------------------------------------------------ elaborazione
     def _cb(self, indata, frames, t, st):
+        if getattr(self, "_halting", False):
+            raise sd.CallbackAbort
         ch = int(self.cfg.get("channel") or 1) - 1
         x = indata[:, ch] if indata.ndim == 2 and indata.shape[1] > ch else indata.reshape(-1)
         self.process(x, self.sr)
