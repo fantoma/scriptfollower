@@ -1461,8 +1461,7 @@ def cue_attive_di_cuevivo():
         w.show()
         w.active_panel.set_option("nogroups", True)
         w.active_dock.show()
-        run(0.1)
-        assert w.link.active_on
+        assert _wait(lambda: w.link.active_on)
         w.link.hello()
         assert _wait(lambda: A.sent("/active/subscribe"))
         hello_i = next(i for i, (p, _a) in enumerate(A.got) if p.endswith("/client/hello"))
@@ -1511,12 +1510,14 @@ def cue_attive_di_cuevivo():
         # stacca e riaggancia
         assert not w.active_dock.isFloating()
         w.toggle_active_floating()
+        run(0.1)                                         # il cambio di finestra avviene a Qt libero
         assert w.active_dock.isFloating() and w.qs.value("active_floating") == "true"
         from PySide6.QtCore import Qt as _Qt
         fl = w.active_dock.windowFlags()                 # finestra con la barra del sistema (si sposta anche
         assert not fl & _Qt.FramelessWindowHint and fl & _Qt.WindowTitleHint   # sotto Wayland)
         assert w.active_dock.titleBarWidget() is not None and w.active_dock.isWindow()
         w.toggle_active_floating()
+        run(0.1)
         assert not w.active_dock.isFloating() and w.active_dock.titleBarWidget() is None
         # gli stati non arrivano più: «non collegato» dopo 5 s, e al prossimo hello ci si riabbona
         ep = w.link.endpoints[("127.0.0.1", A.port)]
@@ -1563,8 +1564,16 @@ def cue_attive_di_cuevivo():
         assert "nuovo master" in w.active_panel.sections[0].head.text()
         # pannello nascosto: disdetta
         w.active_dock.hide()
+        assert _wait(lambda: not w.link.active_on) and _wait(lambda: B.sent("/active/unsubscribe"))
+        # chiudendo la finestra principale la finestra staccata non resta aperta da sola
+        w.active_dock.show()
+        w.toggle_active_floating()
+        run(0.4)
+        assert w.active_dock.isFloating() and not w.active_dock.isHidden()
+        w.project.dirty = False
+        w.close()
         run(0.1)
-        assert not w.link.active_on and _wait(lambda: B.sent("/active/unsubscribe"))
+        assert w.active_dock.isHidden() and w.qs.value("active_visible") == "true"
     finally:
         w.link.stop()
         for f in fakes:

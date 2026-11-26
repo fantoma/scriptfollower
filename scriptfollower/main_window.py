@@ -356,8 +356,15 @@ class MainWindow(QMainWindow):
         self.active_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         self.addDockWidget(Qt.RightDockWidgetArea, self.active_dock)
         self.active_dock.hide()
-        self.active_dock.visibilityChanged.connect(lambda _v: QTimer.singleShot(0, self._active_visibility))
-        self.active_dock.topLevelChanged.connect(self._active_float_changed)
+        # visibilità: si aspetta che si assesti (staccando, il pannello sparisce e ricompare un paio di volte)
+        self._active_vis_timer = QTimer(self)
+        self._active_vis_timer.setSingleShot(True)
+        self._active_vis_timer.setInterval(250)
+        self._active_vis_timer.timeout.connect(self._active_visibility)
+        self.active_dock.visibilityChanged.connect(lambda _v: self._active_vis_timer.start())
+        self.active_dock.topLevelChanged.connect(lambda f: QTimer.singleShot(0, lambda: self._active_float_changed(f)))
+        self._float_busy = False
+        self._closing = False
         self._listen_look()
 
     def _build_menus(self):
@@ -851,16 +858,23 @@ class MainWindow(QMainWindow):
             return
         self.qs.setValue("geometry", self.saveGeometry())
         self._save_active()
+        self._closing = True
+        if self.active_dock.isFloating():
+            self.active_dock.hide()              # la finestra staccata non deve restare aperta da sola
         if self._timing_unsaved:
             self._autosave()
         self.stop_listen()
         if self.audiotest is not None:
             self.audiotest.close()
         self.link.stop()
+        self.link.flush(0.5)                     # i «bye» e le disdette partono prima di uscire
         self.audio.close()
         if self.sim is not None:
             self.sim.close()
         super().closeEvent(e)
+        from PySide6.QtWidgets import QApplication
+        if QApplication.instance() is not None and not getattr(self, "_keep_app", False):
+            QTimer.singleShot(0, QApplication.instance().quit)     # il programma esce davvero
 
     def _mark_dirty(self):
         self.project.dirty = True
@@ -1619,6 +1633,8 @@ class MainWindow(QMainWindow):
     # =========================================================== Cuevivo: cue attive
     def _active_visibility(self):
         """Pannello mostrato: abbonamento alle cue attive; nascosto (anche chiuso dalla sua ×): disdetta."""
+        if self._closing:
+            return
         on = not self.active_dock.isHidden()
         self.link.set_active(on)
         if on and not self.active_dock.isFloating() and self.active_dock.width() < 300:
@@ -1632,17 +1648,27 @@ class MainWindow(QMainWindow):
         programma non può posizionare da sé le sue finestre: con la barra del sistema la sposta il desktop.
         Riagganciato: torna la barra del titolo del pannello."""
         d = self.active_dock
-        if floating:
-            if d.titleBarWidget() is None:
-                d.setTitleBarWidget(QWidget())       # niente doppia barra: basta quella del sistema
-            geo = d.geometry()
-            d.setWindowFlags(Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint |
-                             Qt.WindowMinMaxButtonsHint)
-            d.setWindowTitle(_("Cue attive (Cuevivo)"))
-            d.setGeometry(geo)
-            d.show()
-        elif d.titleBarWidget() is not None:
-            d.setTitleBarWidget(None)
+        if self._float_busy or self._closing:
+            return
+        floating = d.isFloating()                    # lo stato vero adesso (il segnale è di un attimo fa)
+        want = Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | Qt.WindowMinMaxButtonsHint
+        self._float_busy = True                      # cambiare i flag può far ripartire i segnali: una volta sola
+        try:
+            if floating:
+                if d.titleBarWidget() is None:
+                    d.setTitleBarWidget(QWidget())   # niente doppia barra: basta quella del sistema
+                if d.windowFlags() & Qt.FramelessWindowHint or not d.windowFlags() & Qt.WindowTitleHint:
+                    vis = not d.isHidden()
+                    geo = d.geometry()
+                    d.setWindowFlags(want)
+                    d.setWindowTitle(_("Cue attive (Cuevivo)"))
+                    d.setGeometry(geo)
+                    if vis:
+                        d.show()
+            elif d.titleBarWidget() is not None:
+                d.setTitleBarWidget(None)
+        finally:
+            self._float_busy = False
 
     def toggle_active_floating(self):
         d = self.active_dock

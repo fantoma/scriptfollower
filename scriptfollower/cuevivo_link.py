@@ -37,6 +37,7 @@ le cue di una di quelle finché il master risponde di nuovo o arriva il nuovo ma
 Sicurezza: un messaggio «master» viene applicato da solo solo se arriva da un'istanza del gruppo conosciuta
 (dalle risposte all'hello) o dall'indirizzo di un profilo; altrimenti si chiede conferma all'operatore.
 """
+import queue
 import socket
 import threading
 import time
@@ -198,6 +199,9 @@ class CuevivoLink(QObject):
         self.last_ack = {}               # id profilo -> istante dell'ultima risposta
         self.server = None
         self._clients = {}
+        # invii in un thread a parte: l'interfaccia non aspetta mai la rete (DNS di un nome, rete assente…)
+        self._out = queue.Queue(maxsize=500)
+        threading.Thread(target=self._sender, daemon=True, name="cuevivo-link-send").start()
         self.active_on = False           # pannello «Cue attive» visibile: abbonati
         self.active_cfg = active_settings(None)
         self.endpoints = {}              # (host, porta) -> Endpoint (i profili Cuevivo, senza doppioni)
@@ -212,7 +216,7 @@ class CuevivoLink(QObject):
         self.cfg = cfg
         self.set_targets(targets)
         if restart:
-            self.stop(bye=False)
+            self.stop(bye=False, wait=True)
             if cfg["on"]:
                 self.start()
 
@@ -271,7 +275,7 @@ class CuevivoLink(QObject):
         QTimer.singleShot(200, self.hello)
         return True
 
-    def stop(self, bye=True):
+    def stop(self, bye=True, wait=False):
         self.timer.stop()
         if self.active_on and self.server is not None:
             for ep in self.endpoints.values():
@@ -282,27 +286,46 @@ class CuevivoLink(QObject):
         s, self.server = self.server, None
         self.port = None
         if s is not None:
-            try:
-                s.shutdown()
-                s.server_close()
-            except Exception:  # noqa: BLE001
-                pass
+            def close(s=s):
+                try:
+                    s.shutdown()
+                    s.server_close()
+                except Exception:  # noqa: BLE001
+                    pass
+            if wait:                      # riavvio sulla stessa porta: la porta deve essere libera
+                close()
+            else:                         # uscita: shutdown() aspetta il giro del server, lo fa un altro thread
+                threading.Thread(target=close, daemon=True, name="cuevivo-link-close").start()
 
     # ------------------------------------------------------------ invio
     def _cs_targets(self):
         return [t for t in self.targets if t.get("plugin") == "cuevivo" and (t.get("host") or "").strip()]
 
     def _send(self, host, port, address, args):
+        """Mette in coda l'invio (non blocca mai): lo fa il thread _sender."""
         if SimpleUDPClient is None:
             return
         try:
-            key = (host.strip(), int(port))
-            cl = self._clients.get(key)
-            if cl is None:
-                cl = self._clients[key] = SimpleUDPClient(key[0], key[1], allow_broadcast=True)
-            cl.send_message(address, args)
-        except (OSError, ValueError):
-            pass                          # rete assente o indirizzo sbagliato: si riprova al prossimo giro
+            self._out.put_nowait((str(host).strip(), int(port), address, list(args)))
+        except (queue.Full, ValueError, TypeError):
+            pass                          # coda piena (rete bloccata): si riprova al prossimo giro
+
+    def _sender(self):
+        while True:
+            host, port, address, args = self._out.get()
+            try:
+                cl = self._clients.get((host, port))
+                if cl is None:
+                    cl = self._clients[(host, port)] = SimpleUDPClient(host, port, allow_broadcast=True)
+                cl.send_message(address, args)
+            except Exception:  # noqa: BLE001 - rete assente o indirizzo sbagliato: si riprova al prossimo giro
+                pass
+
+    def flush(self, timeout=1.0):
+        """Aspetta (al massimo timeout) che la coda degli invii si svuoti: per l'uscita e per i test."""
+        t0 = time.monotonic()
+        while not self._out.empty() and time.monotonic() - t0 < timeout:
+            time.sleep(0.01)
 
     def hello(self):
         if self.server is None or self.port is None:
