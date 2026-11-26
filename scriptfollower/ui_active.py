@@ -378,4 +378,3 @@ class ActivePanel(QWidget):
 
     def messages(self):
         return [s.msg.text() for s in self.sections if not s.msg.isHidden()]
-
