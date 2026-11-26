@@ -224,6 +224,30 @@ I messaggi usano lo spazio dei nomi storico `/cuestage/…`, che Cuevivo continu
 `/cuevivo/…`) e che capiscono anche le versioni con il nome CueStage. I progetti e i PDF salvati con profili
 «CueStage» si aprono con i profili già passati al plugin «Cuevivo».
 
+### Cue attive di Cuevivo
+
+**Spettacolo › Cue attive di Cuevivo** (F10) mostra le cue che stanno andando su Cuevivo, come il suo pannello
+«Cue attive»: una riga per cue con il colore della lista, l'icona del tipo, numero e nome, la barra di
+avanzamento con tempo trascorso e rimanente (∞ per le cue senza fine), giallo «in attesa ⧗ 3,2 s» durante il
+pre-wait, arancione in pausa, verde mentre va, azzurro mentre sfuma; i pulsanti **❚❚/▶** e **■** mettono in
+pausa / riprendono e fermano la cue su Cuevivo. In alto la prossima cue (standby) e la pausa generale.
+
+- Il pannello si aggancia alla finestra principale (a destra, accanto a «Prossimo evento») oppure si stacca in
+  una finestra a parte, anche su un altro monitor: pulsante ⧉ o **Spettacolo › Stacca / riaggancia le cue
+  attive** (Maiusc+F10). Posizione, dimensione e visibilità si ricordano.
+- ⚙: dimensione delle righe (compatta, normale, grande, molto grande), «Nascondi i gruppi», «Solo media» e
+  aggiornamenti al secondo; le opzioni vanno a Cuevivo con l'abbonamento.
+- Funziona con il collegamento di Impostazioni › OSC (gli stessi hello ogni 5 s): con il pannello visibile
+  Script Follower si abbona (`/cuestage/client/active/subscribe`) dopo l'hello, lo disdice quando il pannello
+  si nasconde e all'uscita. Tra un messaggio e l'altro i tempi avanzano da soli e ogni stato li corregge.
+- Con più profili Cuevivo c'è un elenco per istanza (senza doppioni se due profili puntano alla stessa).
+- **Con le istanze secondarie:** ci si abbona al master. Se gli stati smettono di arrivare compare «Cuevivo
+  non collegato» dopo 5 s e al primo hello ci si riabbona da soli (Cuevivo riavviato, rete, master che torna).
+  Se il master tace e il suo gruppo ha istanze in ridondanza, il pannello mostra le cue di una di queste,
+  segnata «ridondanza: il master non risponde», finché il master risponde di nuovo o la secondaria promossa
+  si annuncia: allora i profili si spostano, l'abbonamento passa al nuovo master e l'elenco lo indica come
+  «nuovo master».
+
 ## GitHub e nuove versioni
 
 Come per Cuevivo (dettagli in [GITHUB.md](GITHUB.md)):

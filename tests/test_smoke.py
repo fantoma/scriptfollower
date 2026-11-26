@@ -1379,5 +1379,195 @@ def nome_cuevivo_ex_cuestage():
     assert seen and seen[0][0] == "10.0.0.6" and seen[0][5] is True
 
 
+class FakeCuevivo:
+    """Cuevivo finto per i test: risponde agli hello, accetta gli abbonamenti alle cue attive e manda stati."""
+
+    def __init__(self, name, host="127.0.0.1", port=0, members=""):
+        import json as _json
+        from pythonosc.dispatcher import Dispatcher
+        from pythonosc.osc_server import ThreadingOSCUDPServer
+        from pythonosc.osc_message_builder import OscMessageBuilder
+        self._json, self._mb = _json, OscMessageBuilder
+        self.name, self.members = name, members
+        self.out = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)    # risposte dal proprio indirizzo,
+        self.out.bind((host, 0))                                         # come un'istanza vera su un altro PC
+        self.got = []
+        self.reply = None                 # (host, porta di ritorno) dall'hello
+        self.mute = False                 # master caduto: riceve ma non risponde
+        self.state = {"v": 1, "instance": name, "paused_all": False, "cues": []}
+        disp = Dispatcher()
+        disp.set_default_handler(self._h, needs_reply_address=True)
+        self.srv = ThreadingOSCUDPServer((host, port), disp)
+        self.port = self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def _h(self, addr, path, *args):
+        self.got.append((path, list(args)))
+        if self.mute:
+            return
+        if path.endswith("/client/hello"):
+            self.reply = (addr[0], int(args[3]))
+            self.send("/cuestage/client/ack", [self.name, self.port, self.members])
+        elif path.endswith("/client/active/subscribe"):
+            self.push()
+
+    def push(self, state=None, raw=None):
+        if state is not None:
+            self.state = state
+        if self.reply:
+            self.send("/cuestage/active", [raw if raw is not None else self._json.dumps(self.state)])
+
+    def send(self, address, args):
+        b = self._mb(address)
+        for a in args:
+            b.add_arg(a)
+        self.out.sendto(b.build().dgram, self.reply)
+
+    def sent(self, suffix):
+        return [a for p, a in self.got if p.endswith(suffix)]
+
+    def close(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+        self.out.close()
+
+
+def _wait(cond, sec=2.0):
+    t0 = time.monotonic()
+    while not cond() and time.monotonic() - t0 < sec:
+        run(0.03)
+    return cond()
+
+
+@test
+def cue_attive_di_cuevivo():
+    """Pannello «Cue attive»: abbonamento dopo l'hello, righe e stati, pulsanti, «non collegato», JSON non valido,
+    aggancio/sgancio; con le istanze secondarie: cambio di master e ridondanza mentre il master tace."""
+    from scriptfollower.cuevivo_link import RESUBSCRIBE_AFTER, parse_active
+    from scriptfollower.main_window import MainWindow
+    A = FakeCuevivo("Regia-A", members="127.0.0.2")
+    fakes = [A]
+    w = MainWindow()
+    try:
+        t = w.project.targets
+        t[0].update(host="127.0.0.1", port=A.port, plugin="cuevivo", name="Audio")
+        t[1].update(host="192.168.1.77", port=8000, plugin="chamsys_magicq", name="Luci")
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.bind(("127.0.0.1", 0))
+        back = s.getsockname()[1]
+        s.close()
+        w.set_link({"on": True, "port": back})
+        w.link.set_targets(t)
+        w.show()
+        w.active_panel.set_option("nogroups", True)
+        w.active_dock.show()
+        run(0.1)
+        assert w.link.active_on
+        w.link.hello()
+        assert _wait(lambda: A.sent("/active/subscribe"))
+        hello_i = next(i for i, (p, _a) in enumerate(A.got) if p.endswith("/client/hello"))
+        sub_i = next(i for i, (p, _a) in enumerate(A.got) if p.endswith("/active/subscribe"))
+        assert hello_i < sub_i                              # prima l'hello, poi l'abbonamento
+        sub = A.sent("/active/subscribe")[-1]
+        assert sub[0] == w.link.client_id and abs(sub[1] - 4.0) < 1e-6 and sub[2] == "nogroups", sub
+        assert _wait(lambda: w.active_panel.messages() == ["Nessuna cue attiva"]), w.active_panel.messages()
+        # tre cue: in attesa, in corso, in pausa (+ un campo sconosciuto da ignorare)
+        A.push({"v": 1, "instance": "Regia-A", "paused_all": False, "futuro": {"x": 1},
+                "standby": {"id": "s", "number": "12", "name": "12 Pioggia", "list": "MAIN"},
+                "cues": [{"id": "c10", "number": "10", "name": "10 Temporale", "type": "audio", "list": "MAIN",
+                          "color": "#3464aa", "state": "run", "elapsed": 12.4, "total": 95.0, "fading": True,
+                          "nuovo_campo": 3},
+                         {"id": "c11", "name": "11 Campana", "type": "audio", "state": "wait", "wait": 3.2,
+                          "total": None},
+                         {"id": "c12", "name": "12 Loop", "type": "video", "state": "paused", "elapsed": 4.0,
+                          "total": None, "status": "frase 3/12"}]})
+        assert _wait(lambda: len(w.active_panel.row_widgets()) == 3)
+        rows = {r.cue["id"]: r for _k, r in w.active_panel.row_widgets()}
+        assert "in attesa ⧗" in rows["c11"].state_text() and rows["c12"].state_text() == "in pausa"
+        assert rows["c10"].state_text() == "sfuma" and rows["c12"].pause_btn.text() == "▶"
+        el0 = rows["c10"].now_values()[0]
+        run(0.3)
+        el1, rem, prog, _wt = rows["c10"].now_values()
+        assert el1 > el0 + 0.2 and abs(rem - (95.0 - el1)) < 1e-6 and 0 < prog < 1      # i tempi avanzano qui
+        assert rows["c12"].now_values()[1] is None                                       # senza fine: ∞
+        sec = w.active_panel.sections[0]
+        assert "12 Pioggia" in sec.standby.text() and not sec.paused.isVisibleTo(w.active_panel)
+        for r in rows.values():
+            r.grab()                                       # il disegno delle righe non dà errori
+        rows["c10"].pause_btn.click()
+        rows["c11"].stop_btn.click()
+        assert _wait(lambda: A.sent("/active/pause") and A.sent("/active/stop"))
+        assert A.sent("/active/pause")[-1] == ["c10"] and A.sent("/active/stop")[-1] == ["c11"]
+        # JSON non valido o senza senso: ignorato, le righe restano
+        A.push(raw="{non è json")
+        A.push(raw='["lista", "non", "oggetto"]')
+        run(0.2)
+        assert len(w.active_panel.row_widgets()) == 3
+        assert parse_active('{"cues": [{"name": "senza id"}, 5]}')["cues"] == []
+        # pausa generale
+        st = dict(A.state, paused_all=True)
+        A.push(st)
+        assert _wait(lambda: w.active_panel.sections[0].paused.isVisibleTo(w.active_panel))
+        # stacca e riaggancia
+        assert not w.active_dock.isFloating()
+        w.toggle_active_floating()
+        assert w.active_dock.isFloating() and w.qs.value("active_floating") == "true"
+        w.toggle_active_floating()
+        assert not w.active_dock.isFloating()
+        # gli stati non arrivano più: «non collegato» dopo 5 s, e al prossimo hello ci si riabbona
+        ep = w.link.endpoints[("127.0.0.1", A.port)]
+        ep.t -= 6.0
+        w.active_panel._tick()
+        assert w.active_panel.messages() == ["Cuevivo non collegato"]
+        n = len(A.sent("/active/subscribe"))
+        ep.sub_t -= RESUBSCRIBE_AFTER + 1
+        w.link.hello()
+        assert _wait(lambda: len(A.sent("/active/subscribe")) > n)
+        assert _wait(lambda: w.active_panel.messages() != ["Cuevivo non collegato"])
+        # il master tace e c'è un'istanza in ridondanza (127.0.0.2): si mostrano le sue cue
+        try:
+            R = FakeCuevivo("Regia-R", host="127.0.0.2", port=A.port)
+        except OSError:
+            R = None                                       # macOS: niente 127.0.0.2
+        if R is not None:
+            fakes.append(R)
+            R.state = dict(A.state, instance="Regia-R", paused_all=False)
+            A.mute = True
+            run(0.3)                                       # gli ultimi stati del master arrivano prima della «caduta»
+            ep.t -= 6.0
+            w.link.hello()
+            assert _wait(lambda: R.reply is not None, 3)   # anche la riserva riceve l'hello
+            assert _wait(lambda: R.sent("/active/subscribe"), 3)
+            assert _wait(lambda: any("ridondanza" in s.head.text() for s in w.active_panel.sections))
+            assert w.active_panel.sections[0].head.text().startswith("Regia-A")   # il master: «non collegato»
+            A.mute = False
+            A.push(dict(A.state, paused_all=False))          # il master risponde di nuovo: via la riserva
+            assert _wait(lambda: ep.fresh())
+            w.link.hello()
+            assert _wait(lambda: ("127.0.0.2", A.port) not in w.link.endpoints)
+            assert _wait(lambda: R.sent("/active/unsubscribe"))
+        # cambio di master: il nuovo master (B) si annuncia, l'abbonamento passa a lui
+        B = FakeCuevivo("Regia-B")
+        fakes.append(B)
+        B.state = {"v": 1, "instance": "Regia-B", "cues": [{"id": "b1", "name": "1 Intro", "state": "run",
+                                                            "elapsed": 1.0, "total": 10.0}]}
+        from pythonosc.udp_client import SimpleUDPClient
+        SimpleUDPClient("127.0.0.1", w.link.port).send_message("/cuevivo/master", ["127.0.0.1", B.port, "Regia-B", "127.0.0.1"])
+        assert _wait(lambda: B.sent("/active/subscribe"), 3)
+        assert A.sent("/active/unsubscribe")
+        assert _wait(lambda: [r.cue["id"] for _k, r in w.active_panel.row_widgets()] == ["b1"])
+        assert "nuovo master" in w.active_panel.sections[0].head.text()
+        # pannello nascosto: disdetta
+        w.active_dock.hide()
+        run(0.1)
+        assert not w.link.active_on and _wait(lambda: B.sent("/active/unsubscribe"))
+    finally:
+        w.link.stop()
+        for f in fakes:
+            f.close()
+        w.project.dirty = False
+        w.close()
+
+
 print(f"\n{len(FAILED)} prove fallite" + (f": {', '.join(FAILED)}" if FAILED else ""))
 sys.exit(len(FAILED))

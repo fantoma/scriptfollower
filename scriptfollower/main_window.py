@@ -8,7 +8,7 @@ from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QFont, QFontDatabase, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout,
                                QHBoxLayout, QLabel, QLayout, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
-                               QSpinBox, QSplitter, QTextBrowser, QVBoxLayout, QWidget)
+                               QDockWidget, QSpinBox, QSplitter, QTextBrowser, QVBoxLayout, QWidget)
 
 from . import __version__
 from .align import Aligner, normalize
@@ -104,6 +104,7 @@ class MainWindow(QMainWindow):
             clamp_to_screen(self)
         else:
             fit_to_screen(self, 1400, 900)
+        self._restore_active()
         QTimer.singleShot(0, lambda: self._startup_open(path))
 
     def _qs_json(self, key):
@@ -341,6 +342,21 @@ class MainWindow(QMainWindow):
         self.split.setSizes([1000, 360])
         root.addWidget(self.split, 1)
         self.setCentralWidget(central)
+        # pannello «Cue attive» di Cuevivo: agganciato a destra oppure in una finestra a parte
+        from .cuevivo_link import active_settings
+        from .ui_active import ActivePanel
+        self.active_cfg = dict(self._qs_json("active_cues") or {})
+        self.link.active_cfg = active_settings(self.active_cfg)
+        self.active_panel = ActivePanel(self.link, self.active_cfg)
+        self.active_panel.optionsChanged.connect(self._active_options)
+        self.active_panel.detach.connect(self.toggle_active_floating)
+        self.active_dock = QDockWidget(_("Cue attive (Cuevivo)"), self)
+        self.active_dock.setObjectName("active_cues")
+        self.active_dock.setWidget(self.active_panel)
+        self.active_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.active_dock)
+        self.active_dock.hide()
+        self.active_dock.visibilityChanged.connect(lambda _v: QTimer.singleShot(0, self._active_visibility))
         self._listen_look()
 
     def _build_menus(self):
@@ -393,6 +409,12 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         add(m, _('Simula il parlato…'), self.simulate_dialog, "F4")
         add(m, _('Prova con un file audio…'), self.audio_test_dialog, "F9")
+        m.addSeparator()
+        a = self.active_dock.toggleViewAction()
+        a.setText(_("Cue attive di Cuevivo"))
+        a.setShortcut(QKeySequence("F10"))
+        m.addAction(a)
+        add(m, _("Stacca / riaggancia le cue attive"), self.toggle_active_floating, "Shift+F10")
         m.addSeparator()
         add(m, _('Ingrandisci'), lambda: self.view.set_zoom(self.view.canvas.zoom * 1.1), "Ctrl++")
         add(m, _('Riduci'), lambda: self.view.set_zoom(self.view.canvas.zoom / 1.1), "Ctrl+-")
@@ -827,6 +849,7 @@ class MainWindow(QMainWindow):
             e.ignore()
             return
         self.qs.setValue("geometry", self.saveGeometry())
+        self._save_active()
         if self._timing_unsaved:
             self._autosave()
         self.stop_listen()
@@ -1592,6 +1615,57 @@ class MainWindow(QMainWindow):
             self.stop_listen()
             self.start_listen()
 
+    # =========================================================== Cuevivo: cue attive
+    def _active_visibility(self):
+        """Pannello mostrato: abbonamento alle cue attive; nascosto (anche chiuso dalla sua ×): disdetta."""
+        on = not self.active_dock.isHidden()
+        self.link.set_active(on)
+        if on and not self.active_dock.isFloating() and self.active_dock.width() < 300:
+            self.resizeDocks([self.active_dock], [360], Qt.Horizontal)
+        if self.active_dock.isFloating() and on:
+            self.active_dock.raise_()
+
+    def toggle_active_floating(self):
+        d = self.active_dock
+        if d.isHidden():
+            d.show()
+        d.setFloating(not d.isFloating())
+        if d.isFloating():
+            fg = self.qs.value("active_float_geometry")
+            if fg is not None:
+                d.restoreGeometry(fg)
+                clamp_to_screen(d)
+            else:
+                fit_to_screen(d, 460, 600)
+        self._save_active()
+
+    def _active_options(self, opts):
+        self.active_cfg = dict(opts)
+        self._qs_save("active_cues", self.active_cfg)
+
+    def _save_active(self):
+        d = self.active_dock
+        self.qs.setValue("active_visible", "true" if not d.isHidden() else "false")
+        self.qs.setValue("active_floating", "true" if d.isFloating() else "false")
+        if d.isFloating():
+            self.qs.setValue("active_float_geometry", d.saveGeometry())
+        self.qs.setValue("window_state", self.saveState())
+
+    def _restore_active(self):
+        st = self.qs.value("window_state")
+        if st is not None:
+            self.restoreState(st)
+        d = self.active_dock
+        floating = self.qs.value("active_floating") in (True, "true")
+        if floating != d.isFloating():
+            d.setFloating(floating)
+        if floating:
+            fg = self.qs.value("active_float_geometry")
+            if fg is not None:
+                d.restoreGeometry(fg)
+                clamp_to_screen(d)
+        d.setVisible(self.qs.value("active_visible") in (True, "true"))
+
     # =========================================================== Cuevivo: cambio di master
     def set_link(self, cfg):
         from .cuevivo_link import link_settings
@@ -1624,7 +1698,7 @@ class MainWindow(QMainWindow):
         self._mark_dirty()
         self._qs_save("osc_targets", targets)
         self.link.set_targets(targets)
-        self.link.moved(new_ip, port, [pid for _i, pid in moves])
+        self.link.moved(new_ip, port, [pid for _i, pid in moves], name)
         self.refresh_points()
         self.status(_("⇄ Nuovo master Cuevivo {0}: profili {1} spostati").format(who, names))
 
