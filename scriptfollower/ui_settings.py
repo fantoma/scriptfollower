@@ -60,6 +60,7 @@ class SettingsDialog(QDialog):
         self._build_osc()
         self._build_rec()
         self._build_panel()
+        self._build_general()
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
@@ -596,6 +597,23 @@ class SettingsDialog(QDialog):
         v.addStretch(1)
         self.tabs.addTab(w, _('Riquadro'))
 
+    # ------------------------------------------------------------ generale (impostazioni del computer)
+    def _build_general(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        g = QGroupBox(_('Nuove versioni'))
+        f = QFormLayout(g)
+        self.upd_on = QCheckBox(_("Controlla all'avvio se c'è una nuova versione"))
+        self.upd_on.setChecked(self.mw.update_check_on())
+        f.addRow(self.upd_on)
+        hint = QLabel(_("Al sito vanno solo versione, sistema operativo, architettura e un codice anonimo casuale dell'installazione (per le statistiche). Impostazione di questo computer, non dello show."))
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#888; font-size:11px;")
+        f.addRow(hint)
+        v.addWidget(g)
+        v.addStretch(1)
+        self.tabs.addTab(w, _('Generale'))
+
     def _pv_unit_changed(self, *_a):
         unit = self.pv_unit.currentData()
         self.pv_count.setRange(1, PANEL_MAX[unit])
@@ -616,6 +634,7 @@ class SettingsDialog(QDialog):
         self.mw.set_audio(self.audio_cfg())
         self.mw.apply_settings(self.targets(), self.rec_cfg(), self.panel_cfg())
         self.mw.set_link({"on": self.link_on.isChecked(), "port": self.link_port.value()})
+        self.mw.set_update_check(self.upd_on.isChecked())
         super().accept()
 
     def reject(self):

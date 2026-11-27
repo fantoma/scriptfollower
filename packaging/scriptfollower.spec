@@ -46,6 +46,9 @@ datas += collect_data_files("ctranslate2")
 binaries += collect_dynamic_libs("soundfile") + collect_dynamic_libs("_soundfile_data")
 datas += collect_data_files("_soundfile_data")
 
+# ---- certifi: certificati per il controllo della nuova versione (cacert.pem)
+datas += collect_data_files("certifi")
+
 # ---- modello vocale incluso (facoltativo)
 model = os.environ.get("SCRIPTFOLLOWER_MODEL_DIR")
 if model and os.path.isdir(model):
@@ -54,7 +57,7 @@ if model and os.path.isdir(model):
         if os.path.isfile(path):
             datas.append((path, os.path.join("models", name, os.path.dirname(os.path.relpath(path, model)))))
 
-hidden = set(collect_submodules("scriptfollower")) | set(collect_submodules("pymupdf")) | {"vosk", "_cffi_backend", "ctranslate2", "tokenizers", "soundfile", "_soundfile_data"}
+hidden = set(collect_submodules("scriptfollower")) | set(collect_submodules("pymupdf")) | {"vosk", "_cffi_backend", "ctranslate2", "tokenizers", "soundfile", "_soundfile_data", "certifi"}
 
 a = Analysis(
     [os.path.join(SPECPATH, "launch.py")],

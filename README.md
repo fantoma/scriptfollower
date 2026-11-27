@@ -183,6 +183,8 @@ resta in media entro una parola. Dopo un salto di centinaia o migliaia di parole
   didascalie comprese, oppure le ultime **parole** dette.
 - **Riconoscimento**: modello, download del modello italiano, vocabolario limitato al copione, ampiezza della
   ricerca, sicurezza richiesta e altezza della riga corrente.
+- **Generale**: **Controlla all'avvio se c'è una nuova versione** (acceso di base). È un'impostazione del
+  computer, non dello show: non finisce nel PDF.
 
 Consiglio pratico: una mandata aux del mixer con **solo i radiomicrofoni delle voci**, asciutta, senza musica
 né effetti.
@@ -256,6 +258,28 @@ Come per Cuevivo (dettagli in [GITHUB.md](GITHUB.md)):
 ./crea_repo_github.sh      # una volta sola: crea fantoma/scriptfollower e carica il progetto
 ./release.sh               # ogni nuova versione: numero, commit, tag → GitHub costruisce e pubblica
 ```
+
+### Controllo della nuova versione
+
+All'avvio, in un thread che non rallenta nulla, Script Follower chiede al sito
+(`https://www.fantoma.it/scriptfollower/version.php`) qual è l'ultima versione pubblicata. Se è più recente di
+quella installata, accanto al menu **Aiuto** compare la scritta rossa **Vedi la nuova versione**, che apre
+la pagina del programma (sul Mac, con la barra dei menu di sistema, è un menu in più dopo «Aiuto»). Senza rete
+o con una risposta strana non succede niente: nessun messaggio, nessuna attesa.
+
+Con la richiesta, per le statistiche d'uso del sito, vanno **solo**: la versione installata, il sistema
+operativo con la sua versione (per esempio «Ubuntu 24.04», «Windows 11 (build 22631)», «macOS 14.5»),
+l'architettura (`x86_64` o `arm64`) e un **codice anonimo casuale** dell'installazione. Nessun dato personale.
+**Aiuto › Informazioni** mostra sistema e architettura così come vengono mandati.
+
+Il codice anonimo è creato una volta sola e salvato nel file `.install-id` nella cartella dei dati
+(`~/.local/share/scriptfollower`, `%APPDATA%\ScriptFollower`, `~/Library/Application Support/ScriptFollower`).
+Cancellandolo se ne crea uno nuovo. Serve anche a escludere dalle statistiche del sito le proprie installazioni
+(elenco `exclude_installs` sul sito); se il file non si può scrivere, si usa un codice valido solo per quella
+sessione.
+
+Per disattivare il controllo: **Impostazioni › Generale › Controlla all'avvio se c'è una nuova versione**,
+oppure la variabile d'ambiente `SCRIPTFOLLOWER_NO_UPDATE_CHECK=1` (comoda anche per test e CI).
 
 ## Avvio dai sorgenti
 
@@ -333,7 +357,8 @@ macOS chiede il permesso per il microfono.
 | `osc.py` + `osc_profiles/` | profili di destinazione, plugin, invio |
 | `project.py` | dati dello show, JSON esportato, regole dei pulsanti durante lo spettacolo |
 | `pdf_store.py` | dati e immagini dentro il PDF, copia di riserva pulita, scrittura atomica |
-| `cuevivo_link.py` | presentazione a Cuevivo e cambio di master |
+| `cuevivo_link.py` | presentazione a Cuevivo e cambio di master, cue attive |
+| `update_check.py` | controllo della nuova versione sul sito, all'avvio |
 | `ui_*.py`, `main_window.py` | interfaccia |
 
 ## Licenze

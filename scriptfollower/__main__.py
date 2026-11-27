@@ -72,6 +72,8 @@ def main():
     for p in app.pending:
         w.open_any(p)
     w.show()
+    from PySide6.QtCore import QTimer
+    QTimer.singleShot(0, w.start_update_check)     # nuova versione sul sito? in un thread, non blocca l'avvio
     code = app.exec()
     # uscita sicura: le preferenze sono già salvate; un thread rimasto appeso (driver audio, rete) non deve
     # tenere vivo il processo con le finestre a metà

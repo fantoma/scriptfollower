@@ -20,6 +20,7 @@ os.environ["SCRIPTFOLLOWER_TESTING"] = "1"          # chiusura delle finestre se
 # impostazioni e dati dei test in cartelle temporanee: quelli veri dell'utente non si toccano
 _HOME = tempfile.mkdtemp(prefix="scriptfollower-home-")
 os.environ["SCRIPTFOLLOWER_DATA"] = os.path.join(_HOME, "dati")
+os.environ["SCRIPTFOLLOWER_NO_UPDATE_CHECK"] = "1"   # nessuna richiesta al sito durante i test
 
 import numpy as np  # noqa: E402
 from PySide6.QtCore import QSettings  # noqa: E402
@@ -857,7 +858,7 @@ def interfaccia_tradotta():
         from scriptfollower.main_window import MainWindow
         w = MainWindow()
         assert w.menuBar().actions()[0].text() == "&Datoteka"
-        for page in range(4):
+        for page in range(5):
             SettingsDialog(w, page).close()
         w.project.dirty = False
         w.close()
@@ -1619,6 +1620,99 @@ def scheda_audio_chiusa_senza_attese():
     finally:
         ai.sd = old
     ai.halt_stream(None)                                 # niente stream: niente errori
+
+
+@test
+def controllo_nuova_versione():
+    """Versione dal sito (testo o JSON), confronto numerico, dati della richiesta, «.install-id» creato una volta;
+    la scritta «Vedi la nuova versione» compare solo se la versione del sito è più recente. Nessuna rete."""
+    import urllib.parse
+    from scriptfollower import __version__, update_check as uc
+    from scriptfollower.i18n import _
+    assert uc.parse_version("0.3.9") == "0.3.9"
+    assert uc.parse_version("0.3.9\n") == "0.3.9"
+    assert uc.parse_version('{"version": "0.3.9", "tag": "v0.3.9", "released": "2026-11-27"}') == "0.3.9"
+    assert uc.parse_version("<html>errore</html>") is None and uc.parse_version("") is None
+    assert uc.parse_version(None) is None and uc.parse_version('{"version": ""}') is None
+    assert uc.is_newer("0.3.10", "0.3.9") and not uc.is_newer("0.3.9", "0.3.10")
+    assert not uc.is_newer("0.3.8", "0.3.8.0") and not uc.is_newer("0.3.8.0", "0.3.8")
+    assert not uc.is_newer("", "0.3.8") and not uc.is_newer(None, "0.3.8")
+    assert uc.arch("amd64") == "x86_64" and uc.arch("AMD64") == "x86_64" and uc.arch("x64") == "x86_64"
+    assert uc.arch("aarch64") == "arm64" and uc.arch("arm64") == "arm64" and uc.arch("x86_64") == "x86_64"
+    assert uc.arch() and uc.os_version().strip()
+    assert uc.os_family() in ("linux", "windows", "macos")
+
+    # codice anonimo: creato una volta nella cartella dei dati (temporanea) e poi riletto
+    old_data = os.environ["SCRIPTFOLLOWER_DATA"]
+    os.environ["SCRIPTFOLLOWER_DATA"] = tempfile.mkdtemp(prefix="sf-upd-")
+    try:
+        idf = os.path.join(os.environ["SCRIPTFOLLOWER_DATA"], ".install-id")
+        assert not os.path.exists(idf)
+        url = uc.request_url()
+        assert url.startswith(uc.VERSION_URL + "?")
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        assert set(q) == {"v", "os", "osver", "arch", "id"}, q
+        assert q["v"] == [__version__] and q["os"] == [uc.os_family()] and q["arch"] == [uc.arch()]
+        assert q["osver"] == [uc.os_version()]
+        saved = open(idf, encoding="ascii").read().strip()
+        assert q["id"] == [saved] and len(saved) == 32
+        assert uc.install_id() == saved and uc.request_url() == url
+        ua = uc.user_agent()
+        assert ua.startswith(f"ScriptFollower/{__version__} (") and uc.os_version() in ua, ua
+    finally:
+        os.environ["SCRIPTFOLLOWER_DATA"] = old_data
+
+    # controllo all'avvio: disattivato dalla variabile d'ambiente (test) e dall'impostazione
+    from scriptfollower.main_window import MainWindow
+    w = MainWindow()
+    w.show()
+    try:
+        assert w.start_update_check() is None                        # SCRIPTFOLLOWER_NO_UPDATE_CHECK=1
+        assert w.update_check_on()
+        os.environ["SCRIPTFOLLOWER_NO_UPDATE_CHECK"] = "0"
+        w.set_update_check(False)
+        assert not w.update_check_on() and w.start_update_check() is None
+        w.set_update_check(True)
+        os.environ["SCRIPTFOLLOWER_NO_UPDATE_CHECK"] = "1"
+        assert uc.os_version() in uc.about_html() and uc.arch() in uc.about_html()
+
+        def label_of(chk):
+            return chk.label is not None and chk.label.isVisible()
+        w.menuBar().setNativeMenuBar(False)
+        for remote, shown in (("0.3.8", False), (None, False), ("schifezza", False), (__version__, False),
+                              ("99.0.0", True)):
+            chk = uc.UpdateChecker(w, __version__, fetcher=lambda _u, r=remote: r)
+            chk.start()
+            run(0.3)
+            assert label_of(chk) == shown, (remote, chk.label)
+            if shown:
+                lab = chk.label
+                assert _("Vedi la nuova versione") in lab.text() and uc.PAGE_URL in lab.text()
+                assert "99.0.0" in lab.toolTip() and __version__ in lab.toolTip()
+                g = w.menuBar().actionGeometry(w.help_menu.menuAction())
+                assert lab.x() >= g.right(), (lab.x(), g)
+                x0 = lab.x()
+                w.resize(w.width() + 120, w.height())
+                run(0.2)
+                assert lab.x() == w.menuBar().actionGeometry(w.help_menu.menuAction()).right() + 12 == x0
+        # il fetch che solleva un'eccezione non fa nulla
+        def boom(_u):
+            raise OSError("niente rete")
+        chk = uc.UpdateChecker(w, __version__, fetcher=boom)
+        chk.start()
+        run(0.2)
+        assert chk.label is None
+        # impostazione nella scheda «Generale»
+        from scriptfollower.ui_settings import SettingsDialog
+        d = SettingsDialog(w, 4)
+        assert d.upd_on.isChecked()
+        d.upd_on.setChecked(False)
+        d.accept()
+        assert not w.update_check_on()
+        w.set_update_check(True)
+    finally:
+        w.project.dirty = False
+        w.close()
 
 
 print(f"\n{len(FAILED)} prove fallite" + (f": {', '.join(FAILED)}" if FAILED else ""))

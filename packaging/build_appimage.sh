@@ -42,6 +42,7 @@ rm -rf "$APPDIR"/usr/python/lib/python3.*/{test,idlelib,tkinter,turtledemo,ensur
 # ---------------------------------------------------------------- librerie Python
 say "PySide6, numpy, sounddevice, PyMuPDF, Vosk…"
 "$PY" -m pip install --no-warn-script-location --disable-pip-version-check -q -r "$ROOT/requirements.txt"
+"$PY" -c "import certifi" || { echo "certifi mancante (serve al controllo della nuova versione)" >&2; exit 1; }
 "$PY" "$ROOT/packaging/prune_qt.py" "$APPDIR/usr/python"
 "$PY" -m pip uninstall -y -q pip setuptools 2>/dev/null || true
 

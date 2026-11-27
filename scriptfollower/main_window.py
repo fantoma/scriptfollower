@@ -453,6 +453,7 @@ class MainWindow(QMainWindow):
             a.triggered.connect(lambda _c=False, c=code: self.set_ui_language(c))
 
         m = mb.addMenu(_('&Aiuto'))
+        self.help_menu = m
         add(m, _('Guida rapida'), self.help_dialog, "F1")
         add(m, _('Informazioni'), self.about)
 
@@ -1617,6 +1618,24 @@ class MainWindow(QMainWindow):
         self.view.canvas.update()
 
     # =========================================================== impostazioni
+    def update_check_on(self):
+        """Controllo della nuova versione all'avvio: impostazione del computer (non dello show), acceso di base."""
+        v = self.qs.value("update_check", True)
+        return str(v).strip().lower() not in ("false", "0", "no", "")
+
+    def set_update_check(self, on):
+        self.qs.setValue("update_check", bool(on))
+
+    def start_update_check(self):
+        """All'avvio: la versione pubblicata sul sito si controlla in un thread che non blocca; se è più recente,
+        accanto ad «Aiuto» compare «Vedi la nuova versione» (SCRIPTFOLLOWER_NO_UPDATE_CHECK=1 lo disattiva)."""
+        from .update_check import UpdateChecker, disabled_by_env
+        if disabled_by_env() or not self.update_check_on():
+            return None
+        self.update_checker = UpdateChecker(self, __version__)
+        self.update_checker.start()
+        return self.update_checker
+
     def settings_dialog(self, page=0):
         SettingsDialog(self, page).exec()
 
@@ -1851,7 +1870,9 @@ class MainWindow(QMainWindow):
         d.exec()
 
     def about(self):
-        QMessageBox.about(self, APP_NAME, _('<b>{0}</b> {1}<br>Segue il parlato e fa scorrere il copione, con pulsanti OSC per Cuevivo, QLab, SCS, ChamSys e altri.<br><br>Riconoscimento vocale offline: Vosk (Apache 2.0), Whisper/CTranslate2 (MIT). PDF: PyMuPDF (AGPL). Audio: libsndfile (LGPL).<br>Licenza GPL v3.').format(APP_NAME, __version__))
+        from .update_check import about_html
+        QMessageBox.about(self, APP_NAME, _('<b>{0}</b> {1}<br>Segue il parlato e fa scorrere il copione, con pulsanti OSC per Cuevivo, QLab, SCS, ChamSys e altri.<br><br>Riconoscimento vocale offline: Vosk (Apache 2.0), Whisper/CTranslate2 (MIT). PDF: PyMuPDF (AGPL). Audio: libsndfile (LGPL).<br>Licenza GPL v3.').format(APP_NAME, __version__)
+                          + "<br><br>" + about_html())
 
 
 def _report_stuck():
