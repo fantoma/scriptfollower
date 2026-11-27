@@ -888,7 +888,7 @@ class MainWindow(QMainWindow):
             self._shutdown()
             return
         import threading
-        done = threading.Event()
+        done = self._shutdown_done = threading.Event()
 
         def work():
             try:
@@ -906,6 +906,13 @@ class MainWindow(QMainWindow):
             else:
                 QTimer.singleShot(100, finish)
         QTimer.singleShot(0, finish)
+
+    def wait_shutdown(self, timeout=5.0):
+        """Attende la fine della pulizia di chiusura (scheda audio, rete). Serve a chi chiude la finestra senza
+        uscire subito dal processo (prova di avvio): se Python finisce mentre il thread di chiusura è dentro
+        PortAudio, su macOS il processo muore con «Abort trap: 6». Vero se la pulizia è finita."""
+        done = getattr(self, "_shutdown_done", None)
+        return True if done is None else done.wait(timeout)
 
     def _shutdown(self):
         """Libera riconoscitore, rete e scheda audio: può metterci un po' (driver audio, thread del

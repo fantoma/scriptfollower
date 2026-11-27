@@ -163,7 +163,14 @@ def self_test(report=None):
             app.processEvents()
         w.project.dirty = False
         w.close()
-        return "finestra principale creata"
+        # la chiusura libera scheda audio e rete in un thread: si aspetta che finisca, altrimenti Python si
+        # chiude mentre PortAudio sta ancora fermando gli stream (macOS: «Abort trap: 6» all'uscita)
+        t0 = time.monotonic()
+        while not w.wait_shutdown(0.05) and time.monotonic() - t0 < 5:
+            app.processEvents()
+        if not w.wait_shutdown(0):
+            raise RuntimeError("la chiusura della finestra non è finita in 5 s")
+        return "finestra principale creata e chiusa"
     step("interfaccia", window)
     out("tutto bene" if ok else "ci sono problemi")
     if report or (IS_WIN and FROZEN):
@@ -182,7 +189,14 @@ def main():
     if args[:1] == ["--self-test"]:
         if sys.stdout is None:
             sys.stdout = sys.stderr = open(os.devnull, "w")
-        return self_test(args[1] if len(args) > 1 else None)
+        code = self_test(args[1] if len(args) > 1 else None)
+        # come all'uscita normale (__main__): niente finalizzazione di Python con thread di driver ancora vivi
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except Exception:  # noqa: BLE001
+            pass
+        os._exit(code)
     _log_without_console()
     args = [a for a in args if not a.startswith("-psn_")]      # macOS: argomento aggiunto dal Finder
     sys.argv = ["scriptfollower"] + args

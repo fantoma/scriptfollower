@@ -1715,5 +1715,34 @@ def controllo_nuova_versione():
         w.close()
 
 
+@test
+def chiusura_vera_attendibile():
+    """Chiusura come nel programma vero (pulizia in un thread): wait_shutdown() aspetta che la pulizia finisca,
+    così la prova di avvio non esce mentre PortAudio sta ancora chiudendo (macOS: «Abort trap: 6»)."""
+    from scriptfollower.main_window import MainWindow
+    w = MainWindow()
+    w.show()
+    run(0.1)
+    assert w.wait_shutdown(0)                            # non ancora chiusa: niente da aspettare
+    steps = []
+
+    def slow():
+        time.sleep(0.4)
+        steps.append("pulito")
+    w._shutdown = slow
+    old = os.environ.pop("SCRIPTFOLLOWER_TESTING")
+    try:
+        w.project.dirty = False
+        t0 = time.monotonic()
+        w.close()
+        assert time.monotonic() - t0 < 0.3 and not w.isVisible()     # la finestra sparisce subito
+        assert not w.wait_shutdown(0) and steps == []
+        assert w.wait_shutdown(3) and steps == ["pulito"]
+    finally:
+        os.environ["SCRIPTFOLLOWER_TESTING"] = old
+        app.setQuitOnLastWindowClosed(True)
+    run(0.3)                                             # il timer di uscita trova la pulizia finita
+
+
 print(f"\n{len(FAILED)} prove fallite" + (f": {', '.join(FAILED)}" if FAILED else ""))
 sys.exit(len(FAILED))
