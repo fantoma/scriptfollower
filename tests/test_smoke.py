@@ -1727,17 +1727,18 @@ def chiusura_vera_attendibile():
     steps = []
 
     def slow():
-        time.sleep(0.4)
+        time.sleep(1.5)
         steps.append("pulito")
     w._shutdown = slow
     old = os.environ.pop("SCRIPTFOLLOWER_TESTING")
     try:
         w.project.dirty = False
-        t0 = time.monotonic()
         w.close()
-        assert time.monotonic() - t0 < 0.3 and not w.isVisible()     # la finestra sparisce subito
+        # la finestra sparisce senza aspettare la pulizia (niente limiti di tempo: le macchine della CI,
+        # Windows soprattutto, sono lente e imprevedibili)
+        assert not w.isVisible()
         assert not w.wait_shutdown(0) and steps == []
-        assert w.wait_shutdown(3) and steps == ["pulito"]
+        assert w.wait_shutdown(10) and steps == ["pulito"]
     finally:
         os.environ["SCRIPTFOLLOWER_TESTING"] = old
         app.setQuitOnLastWindowClosed(True)
